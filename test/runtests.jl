@@ -1,0 +1,6 @@
+include("api_smoke.jl")
+include("controller_daemon.jl")
+include("crash_recovery.jl")
+include("discovery.jl")
+include("sandbox.jl")
+include("worker_single.jl")

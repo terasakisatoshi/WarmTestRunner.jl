@@ -1,0 +1,1 @@
+global WARMTEST_BOOTSTRAPPED = true
