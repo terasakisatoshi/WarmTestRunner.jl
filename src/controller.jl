@@ -13,7 +13,13 @@ Base.@kwdef mutable struct ControllerState
     stop_requested::Bool = false
 end
 
-function build_jobs(cfg::RunnerConfig; tests::AbstractVector{<:AbstractString} = String[])
+function build_jobs(
+    cfg::RunnerConfig;
+    tests::AbstractVector{<:AbstractString} = String[],
+    changed_only::Bool = false,
+)
+    !isempty(tests) && changed_only && throw(ArgumentError("changed_only cannot be combined with explicit tests"))
+    changed_only && return discover_changed_tests(cfg.pkgroot)
     isempty(tests) && return discover_tests(cfg.pkgroot)
 
     return [
@@ -404,7 +410,11 @@ function handle_request!(state::ControllerState, request)
         persist_status!(state)
 
         jobs = try
-            build_jobs(state.cfg; tests = request_payload(request, :tests, String[]))
+            build_jobs(
+                state.cfg;
+                tests = request_payload(request, :tests, String[]),
+                changed_only = request_payload(request, :changed_only, false),
+            )
         catch
             lock(state.lock) do
                 state.run_active = false

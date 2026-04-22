@@ -39,10 +39,19 @@ function serve(; kwargs...)
     return launch_controller(cfg)
 end
 
-function run(; tests = String[], quickfail::Bool = false, kwargs...)
+function run(; tests = String[], quickfail::Bool = false, changed_only::Bool = false, kwargs...)
+    !isempty(tests) && changed_only && throw(ArgumentError("changed_only cannot be combined with explicit tests"))
     cfg = make_config(; kwargs...)
     serve(; kwargs...)
-    return client_request(cfg.pkgroot, (cmd = :run, tests = String.(tests), quickfail = quickfail))
+    return client_request(
+        cfg.pkgroot,
+        (
+            cmd = :run,
+            tests = String.(tests),
+            quickfail = quickfail,
+            changed_only = changed_only,
+        ),
+    )
 end
 
 function stop(; pkgroot::AbstractString = pwd())
