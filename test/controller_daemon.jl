@@ -2,6 +2,7 @@ using Test
 using WarmTestRunner
 using Sockets
 using Serialization
+using TOML
 
 const FIXTURE_ROOT = joinpath(@__DIR__, "packages", "FixturePkg")
 const PASS_JOB = TestJob(path = joinpath(FIXTURE_ROOT, "test", "pass.jl"), name = "pass.jl")
@@ -400,6 +401,52 @@ end
                 @test summary.passed == 1
                 @test summary.failed == 0
             end
+            try
+                WarmTestRunner.stop(pkgroot = pkgroot)
+                WarmTestRunner.wait_for_record_gone(pkgroot)
+            catch
+            end
+        end
+    end
+end
+
+@testset "changed_only restarts when live registry record is from an older protocol" begin
+    mktempdir() do tmp
+        withenv("WARMTESTRUNNER_HOME" => tmp) do
+            pkgroot = init_changed_only_public_fixture()
+            initial_handle = WarmTestRunner.serve(
+                pkgroot = pkgroot,
+                jobs = 1,
+            )
+
+            record_path = WarmTestRunner.server_record_path(pkgroot)
+            record_data = TOML.parsefile(record_path)
+            pop!(record_data, "protocol_version", nothing)
+            open(record_path, "w") do io
+                TOML.print(io, record_data)
+            end
+
+            write(joinpath(pkgroot, "test", "beta.jl"), "using Test\nprintln(\"beta changed\")\n@test true\n")
+
+            summary = try
+                WarmTestRunner.run(
+                    pkgroot = pkgroot,
+                    jobs = 1,
+                    changed_only = true,
+                )
+            catch err
+                err
+            end
+
+            @test summary isa WarmTestRunner.RunSummary
+            if summary isa WarmTestRunner.RunSummary
+                @test [basename(result.path) for result in summary.results] == ["beta.jl"]
+                @test summary.passed == 1
+            end
+
+            current_status = WarmTestRunner.status(pkgroot = pkgroot)
+            @test current_status.server_id != initial_handle.server_id
+
             try
                 WarmTestRunner.stop(pkgroot = pkgroot)
                 WarmTestRunner.wait_for_record_gone(pkgroot)
