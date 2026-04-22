@@ -46,7 +46,7 @@ end
 
 function git_output_lines(cmd::Cmd)
     try
-        text = readchomp(cmd)
+        text = readchomp(pipeline(cmd, stderr = devnull))
         isempty(text) && return String[]
         return split(text, '\n')
     catch
