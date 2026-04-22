@@ -15,7 +15,7 @@ WarmTestRunner.jl provides a daemon-backed test runner for local iteration. It k
 - `run()` connects to the daemon, discovers tests when `tests == []`, and returns a structured `RunSummary`.
 - if `changed_only = true` and any changed path is under `src/`, the full discovered test set runs
 - if `changed_only = true` and Git change detection is unavailable or the package is not in a usable Git repo, the full discovered test set runs
-- if `changed_only = true` and only changed `.jl` files anywhere under `test/` are present, only those files run
+- if `changed_only = true` and only discovered test files under `test/` changed, only those files run
 - if `changed_only = true` and no relevant files changed, `run()` returns an empty `RunSummary`
 - `changed_only` cannot be combined with explicit `tests`
 - `status()` reports daemon state and current active-job count.
