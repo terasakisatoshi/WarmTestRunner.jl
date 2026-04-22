@@ -1,6 +1,6 @@
 # WarmTestRunner.jl Status
 
-Updated: 2026-04-21
+Updated: 2026-04-22
 
 This file summarizes how much of `SPEC.md` is implemented in the current repository and
 what remains deferred.
@@ -12,8 +12,8 @@ Current state:
 - The daemon-backed MVP is implemented and passing the package test suite.
 - The full product described in `SPEC.md` is not complete yet.
 - The implemented scope matches the MVP plan in
-  `docs/superpowers/plans/2026-04-21-warmtestrunner-mvp.md` plus a round of hardening
-  after whole-system review.
+  `docs/superpowers/plans/2026-04-21-warmtestrunner-mvp.md`, the follow-up
+  `changed_only` work, and a round of hardening after whole-system review.
 
 Practical summary:
 
@@ -21,6 +21,8 @@ Practical summary:
 - A persistent controller process owns a warm `Malt` worker pool.
 - Test files run in fresh modules inside reused workers.
 - File-level parallel scheduling, output capture, crash recovery, and `quickfail` work.
+- `changed_only` is implemented as a runtime selection flag.
+- When Git change detection is unavailable or the package is not in a usable Git repo, changed-only selection falls back to the full discovered test set.
 - Several "full spec" features are still intentionally deferred.
 
 ## What Is Implemented
@@ -30,7 +32,7 @@ Practical summary:
 Implemented:
 
 - `serve(; pkgroot, jobs, threads_per_worker, use_testenv, preload_package, startup_file, ...)`
-- `run(; tests = String[], quickfail = false, kwargs...)`
+- `run(; tests = String[], quickfail = false, changed_only = false, kwargs...)`
 - `status(; pkgroot = pwd())`
 - `stop(; pkgroot = pwd())`
 
@@ -39,6 +41,10 @@ Current behavior:
 - `serve()` starts or reuses a daemon for the package root.
 - `run()` connects to the daemon, discovers tests when `tests == []`, and returns a
   structured `RunSummary`.
+- `run(...; changed_only = true)` selects changed tests with the implemented coarse
+  heuristic, including the `src/` fallback to the full discovered set.
+- `run(...; changed_only = true)` also falls back to the full discovered set when Git
+  change detection is unavailable or the package is not in a usable Git repo.
 - `status()` reports daemon state and current active-job count.
 - `stop()` sends a stop request and returns after the controller acknowledges it.
 
@@ -67,6 +73,7 @@ Implemented:
 - Stale registry detection and replacement
 - Active-run `status()` responsiveness
 - Active-run `stop()` responsiveness
+- changed-only fallback when Git diff data is unavailable
 
 ### Configuration Actually Honored
 
@@ -95,6 +102,7 @@ The current test suite covers:
 
 - public API smoke checks
 - test discovery and tag parsing
+- changed-only selection coverage
 - sandbox classification of pass/fail/error
 - single-worker bootstrap and execution
 - `threads_per_worker`
@@ -115,14 +123,13 @@ julia --project=. --startup-file=no -e 'include("test/runtests.jl")'
 
 Latest result:
 
-- full suite passed on 2026-04-21
+- full suite passed on 2026-04-22
 
 ## Deferred From The Full Spec
 
 Not implemented yet:
 
 - `watch()`
-- `changed_only`
 - `rerun_failed`
 - `fresh`
 - `retry_crashed` as a public option
@@ -159,7 +166,7 @@ If measured against the current MVP plan rather than the full spec, the reposito
 
 Most sensible next steps:
 
-1. decide whether the next milestone is `watch()` or `changed_only`
+1. decide whether the next milestone is `watch()`
 2. implement one deferred feature set at a time behind tests
 3. document the current public contract more explicitly, especially `stop()` semantics
 4. keep using `Pkg.test()` separately as the final clean-room verification path

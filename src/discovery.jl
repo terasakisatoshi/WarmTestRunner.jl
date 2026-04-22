@@ -43,3 +43,50 @@ function discover_tests(pkgroot::AbstractString)
         for path in paths
     ]
 end
+
+function git_output_lines(cmd::Cmd)
+    try
+        text = readchomp(pipeline(cmd, stderr = devnull))
+        isempty(text) && return String[]
+        return split(text, '\n')
+    catch
+        return nothing
+    end
+end
+
+function path_starts_with_component(path::AbstractString, component::AbstractString)
+    parts = splitpath(normpath(path))
+    return !isempty(parts) && first(parts) == component
+end
+
+function git_changed_paths(pkgroot::AbstractString)
+    tracked = git_output_lines(`git -C $pkgroot diff --name-only HEAD --`)
+    tracked === nothing && return nothing
+
+    untracked = git_output_lines(`git -C $pkgroot ls-files --others --exclude-standard`)
+    untracked === nothing && return nothing
+
+    paths = Set{String}()
+    for path in Iterators.flatten((tracked, untracked))
+        isempty(path) && continue
+        push!(paths, normpath(path))
+    end
+    return sort!(collect(paths))
+end
+
+function discover_changed_tests(pkgroot::AbstractString)
+    discovered = discover_tests(pkgroot)
+    changed = git_changed_paths(pkgroot)
+    changed === nothing && return discovered
+    any(path_starts_with_component(path, "src") for path in changed) && return discovered
+
+    changed_tests = Set(
+        path for path in changed
+        if path_starts_with_component(path, "test") && endswith(path, ".jl")
+    )
+
+    return [
+        job for job in discovered
+        if normpath(relpath(job.path, pkgroot)) in changed_tests
+    ]
+end

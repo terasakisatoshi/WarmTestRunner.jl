@@ -19,6 +19,11 @@ using WarmTestRunner
     @test_throws ArgumentError WarmTestRunner.make_config(; color = false)
     @test_throws ArgumentError WarmTestRunner.make_config(; worker_timeout = 1.0)
     @test_throws ArgumentError WarmTestRunner.make_config(; log_level = :debug)
+    @test_throws ArgumentError WarmTestRunner.run(
+        pkgroot = joinpath(@__DIR__, "packages", "FixturePkg"),
+        tests = ["pass.jl"],
+        changed_only = true,
+    )
 
     summary = WarmTestRunner.RunSummary(
         results = WarmTestRunner.TestResult[],

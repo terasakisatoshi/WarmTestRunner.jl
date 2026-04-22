@@ -1,6 +1,8 @@
 using UUIDs
 
 const REGISTRY_NAMESPACE = UUID("e9f6f42a-70d3-49ec-bdbd-e7d5bf5a3ca9")
+const SERVER_PROTOCOL_VERSION = 2
+const CHANGED_ONLY_PROTOCOL_VERSION = 2
 
 registry_root() = joinpath(get(ENV, "WARMTESTRUNNER_HOME", joinpath(homedir(), ".julia", "warmtestrunner")), "servers")
 
@@ -12,6 +14,7 @@ server_record_path(pkgroot::AbstractString) = joinpath(
 function write_server_record!(handle::ServerHandle, status::ServerStatus; port::Integer)
     mkpath(registry_root())
     data = Dict{String, Any}(
+        "protocol_version" => SERVER_PROTOCOL_VERSION,
         "server_id" => handle.server_id,
         "pid" => handle.pid,
         "pkgroot" => handle.pkgroot,
@@ -33,8 +36,10 @@ function load_server_record(pkgroot::AbstractString)
     path = server_record_path(pkgroot)
     isfile(path) || return nothing
     data = TOML.parsefile(path)
+    protocol_version = Int(get(data, "protocol_version", 1))
     last_success_at = data["last_success_at"] == 0.0 ? nothing : Float64(data["last_success_at"])
     return (
+        protocol_version = protocol_version,
         handle = ServerHandle(
             pkgroot = String(data["pkgroot"]),
             server_id = String(data["server_id"]),

@@ -39,10 +39,29 @@ function serve(; kwargs...)
     return launch_controller(cfg)
 end
 
-function run(; tests = String[], quickfail::Bool = false, kwargs...)
+function ensure_changed_only_controller!(pkgroot::AbstractString)
+    record = live_record_or_nothing(pkgroot)
+    record === nothing && return nothing
+    record.protocol_version >= CHANGED_ONLY_PROTOCOL_VERSION && return nothing
+    stop(pkgroot = pkgroot)
+    wait_for_record_gone(pkgroot)
+    return nothing
+end
+
+function run(; tests = String[], quickfail::Bool = false, changed_only::Bool = false, kwargs...)
+    !isempty(tests) && changed_only && throw(ArgumentError("changed_only cannot be combined with explicit tests"))
     cfg = make_config(; kwargs...)
+    changed_only && ensure_changed_only_controller!(cfg.pkgroot)
     serve(; kwargs...)
-    return client_request(cfg.pkgroot, (cmd = :run, tests = String.(tests), quickfail = quickfail))
+    return client_request(
+        cfg.pkgroot,
+        (
+            cmd = :run,
+            tests = String.(tests),
+            quickfail = quickfail,
+            changed_only = changed_only,
+        ),
+    )
 end
 
 function stop(; pkgroot::AbstractString = pwd())
