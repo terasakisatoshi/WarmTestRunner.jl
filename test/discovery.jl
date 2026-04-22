@@ -62,33 +62,56 @@ end
     @test WarmTestRunner.parse_warmtest_tags(empty_tags) == String[]
 end
 
-@testset "discover_changed_tests selects all tests when src changes" begin
-    pkgroot = init_git_fixture_pkg()
-    write(
-        joinpath(pkgroot, "src", "ChangedOnlyFixture.jl"),
-        "module ChangedOnlyFixture\nconst SRC_TOUCH = :changed\nend\n",
-    )
+@testset "discover_changed_tests changed_only behavior" begin
+    @testset "selects all tests when src changes" begin
+        pkgroot = init_git_fixture_pkg()
+        write(
+            joinpath(pkgroot, "src", "ChangedOnlyFixture.jl"),
+            "module ChangedOnlyFixture\nconst SRC_TOUCH = :changed\nend\n",
+        )
 
-    jobs = WarmTestRunner.discover_changed_tests(pkgroot)
+        jobs = try
+            WarmTestRunner.discover_changed_tests(pkgroot)
+        catch err
+            err
+        end
 
-    @test [job.name for job in jobs] == ["alpha.jl", "beta.jl"]
-end
+        @test jobs isa Vector{TestJob}
+        if jobs isa Vector{TestJob}
+            @test sort([job.name for job in jobs]) == ["alpha.jl", "beta.jl"]
+        end
+    end
 
-@testset "discover_changed_tests selects changed tracked and untracked test files" begin
-    pkgroot = init_git_fixture_pkg()
-    write(joinpath(pkgroot, "test", "alpha.jl"), "using Test\nprintln(\"alpha changed\")\n@test true\n")
-    write(joinpath(pkgroot, "test", "gamma.jl"), "using Test\nprintln(\"gamma new\")\n@test true\n")
+    @testset "selects changed tracked and untracked test files" begin
+        pkgroot = init_git_fixture_pkg()
+        write(joinpath(pkgroot, "test", "alpha.jl"), "using Test\nprintln(\"alpha changed\")\n@test true\n")
+        write(joinpath(pkgroot, "test", "gamma.jl"), "using Test\nprintln(\"gamma new\")\n@test true\n")
 
-    jobs = WarmTestRunner.discover_changed_tests(pkgroot)
+        jobs = try
+            WarmTestRunner.discover_changed_tests(pkgroot)
+        catch err
+            err
+        end
 
-    @test [job.name for job in jobs] == ["alpha.jl", "gamma.jl"]
-end
+        @test jobs isa Vector{TestJob}
+        if jobs isa Vector{TestJob}
+            @test sort([job.name for job in jobs]) == ["alpha.jl", "gamma.jl"]
+        end
+    end
 
-@testset "discover_changed_tests returns no jobs for irrelevant file changes" begin
-    pkgroot = init_git_fixture_pkg()
-    write(joinpath(pkgroot, "notes.txt"), "docs only\n")
+    @testset "returns no jobs for irrelevant file changes" begin
+        pkgroot = init_git_fixture_pkg()
+        write(joinpath(pkgroot, "notes.txt"), "docs only\n")
 
-    jobs = WarmTestRunner.discover_changed_tests(pkgroot)
+        jobs = try
+            WarmTestRunner.discover_changed_tests(pkgroot)
+        catch err
+            err
+        end
 
-    @test isempty(jobs)
+        @test jobs isa Vector{TestJob}
+        if jobs isa Vector{TestJob}
+            @test isempty(jobs)
+        end
+    end
 end

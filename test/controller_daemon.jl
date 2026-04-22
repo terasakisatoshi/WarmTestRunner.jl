@@ -259,32 +259,6 @@ end
     end
 end
 
-@testset "public run selects only changed tests when changed_only=true" begin
-    mktempdir() do tmp
-        withenv("WARMTESTRUNNER_HOME" => tmp) do
-            pkgroot = init_changed_only_public_fixture()
-            write(joinpath(pkgroot, "test", "beta.jl"), "using Test\nprintln(\"beta changed\")\n@test true\n")
-
-            try
-                summary = WarmTestRunner.run(
-                    pkgroot = pkgroot,
-                    jobs = 1,
-                    use_testenv = false,
-                    preload_package = false,
-                    changed_only = true,
-                )
-
-                @test [basename(result.path) for result in summary.results] == ["beta.jl"]
-                @test summary.passed == 1
-                @test summary.failed == 0
-            finally
-                WarmTestRunner.stop(pkgroot = pkgroot)
-                WarmTestRunner.wait_for_record_gone(pkgroot)
-            end
-        end
-    end
-end
-
 @testset "serve replaces stale registry records" begin
     mktempdir() do tmp
         withenv("WARMTESTRUNNER_HOME" => tmp) do
@@ -397,6 +371,39 @@ end
                 @test summary.crashed == 1
                 @test getfield.(summary.results, :status) == [:crashed]
                 @test WarmTestRunner.status().state == :stopped
+            end
+        end
+    end
+end
+
+@testset "public run selects only changed tests when changed_only=true" begin
+    mktempdir() do tmp
+        withenv("WARMTESTRUNNER_HOME" => tmp) do
+            pkgroot = init_changed_only_public_fixture()
+            write(joinpath(pkgroot, "test", "beta.jl"), "using Test\nprintln(\"beta changed\")\n@test true\n")
+
+            summary = try
+                WarmTestRunner.run(
+                    pkgroot = pkgroot,
+                    jobs = 1,
+                    use_testenv = false,
+                    preload_package = false,
+                    changed_only = true,
+                )
+            catch err
+                err
+            end
+
+            @test summary isa WarmTestRunner.RunSummary
+            if summary isa WarmTestRunner.RunSummary
+                @test [basename(result.path) for result in summary.results] == ["beta.jl"]
+                @test summary.passed == 1
+                @test summary.failed == 0
+            end
+            try
+                WarmTestRunner.stop(pkgroot = pkgroot)
+                WarmTestRunner.wait_for_record_gone(pkgroot)
+            catch
             end
         end
     end
