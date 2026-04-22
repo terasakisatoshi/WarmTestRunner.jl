@@ -1,6 +1,6 @@
 # WarmTestRunner.jl Status
 
-Updated: 2026-04-21
+Updated: 2026-04-22
 
 This file summarizes how much of `SPEC.md` is implemented in the current repository and
 what remains deferred.
@@ -21,6 +21,7 @@ Practical summary:
 - A persistent controller process owns a warm `Malt` worker pool.
 - Test files run in fresh modules inside reused workers.
 - File-level parallel scheduling, output capture, crash recovery, and `quickfail` work.
+- `changed_only` is implemented as a runtime selection flag.
 - Several "full spec" features are still intentionally deferred.
 
 ## What Is Implemented
@@ -30,7 +31,7 @@ Practical summary:
 Implemented:
 
 - `serve(; pkgroot, jobs, threads_per_worker, use_testenv, preload_package, startup_file, ...)`
-- `run(; tests = String[], quickfail = false, kwargs...)`
+- `run(; tests = String[], quickfail = false, changed_only = false, kwargs...)`
 - `status(; pkgroot = pwd())`
 - `stop(; pkgroot = pwd())`
 
@@ -39,6 +40,8 @@ Current behavior:
 - `serve()` starts or reuses a daemon for the package root.
 - `run()` connects to the daemon, discovers tests when `tests == []`, and returns a
   structured `RunSummary`.
+- `run(...; changed_only = true)` selects changed tests with the implemented coarse
+  heuristic, including the `src/` fallback to the full discovered set.
 - `status()` reports daemon state and current active-job count.
 - `stop()` sends a stop request and returns after the controller acknowledges it.
 
@@ -95,6 +98,7 @@ The current test suite covers:
 
 - public API smoke checks
 - test discovery and tag parsing
+- changed-only selection coverage
 - sandbox classification of pass/fail/error
 - single-worker bootstrap and execution
 - `threads_per_worker`
@@ -122,7 +126,6 @@ Latest result:
 Not implemented yet:
 
 - `watch()`
-- `changed_only`
 - `rerun_failed`
 - `fresh`
 - `retry_crashed` as a public option
@@ -159,7 +162,7 @@ If measured against the current MVP plan rather than the full spec, the reposito
 
 Most sensible next steps:
 
-1. decide whether the next milestone is `watch()` or `changed_only`
+1. decide whether the next milestone is `watch()`
 2. implement one deferred feature set at a time behind tests
 3. document the current public contract more explicitly, especially `stop()` semantics
 4. keep using `Pkg.test()` separately as the final clean-room verification path
