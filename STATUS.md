@@ -12,8 +12,8 @@ Current state:
 - The daemon-backed MVP is implemented and passing the package test suite.
 - The full product described in `SPEC.md` is not complete yet.
 - The implemented scope matches the MVP plan in
-  `docs/superpowers/plans/2026-04-21-warmtestrunner-mvp.md` plus a round of hardening
-  after whole-system review.
+  `docs/superpowers/plans/2026-04-21-warmtestrunner-mvp.md`, the follow-up
+  `changed_only` work, and a round of hardening after whole-system review.
 
 Practical summary:
 
