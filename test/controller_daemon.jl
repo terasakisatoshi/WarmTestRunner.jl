@@ -36,6 +36,31 @@ function send_request(port::Integer, request)
     end
 end
 
+function init_changed_only_public_fixture()
+    pkgroot = mktempdir()
+    mkpath(joinpath(pkgroot, "src"))
+    mkpath(joinpath(pkgroot, "test"))
+
+    write(
+        joinpath(pkgroot, "Project.toml"),
+        """
+        name = "ChangedOnlyPublicFixture"
+        uuid = "66666666-7777-8888-9999-aaaaaaaaaaaa"
+        version = "0.1.0"
+        """,
+    )
+    write(joinpath(pkgroot, "src", "ChangedOnlyPublicFixture.jl"), "module ChangedOnlyPublicFixture\nend\n")
+    write(joinpath(pkgroot, "test", "alpha.jl"), "using Test\nprintln(\"alpha\")\n@test true\n")
+    write(joinpath(pkgroot, "test", "beta.jl"), "using Test\nprintln(\"beta\")\n@test true\n")
+
+    Base.run(`git -C $pkgroot init`)
+    Base.run(`git -C $pkgroot config user.email warmtestrunner@example.com`)
+    Base.run(`git -C $pkgroot config user.name WarmTestRunner`)
+    Base.run(`git -C $pkgroot add .`)
+    Base.run(`git -C $pkgroot commit -m initial`)
+    return pkgroot
+end
+
 @testset "inline scheduler runs pass and fail files" begin
     cfg = WarmTestRunner.make_config(pkgroot = FIXTURE_ROOT, jobs = 2)
     jobs = [PASS_JOB, FAIL_JOB]
@@ -229,6 +254,32 @@ end
                 WarmTestRunner.wait_for_record_gone(FIXTURE_ROOT)
                 @test WarmTestRunner.load_server_record(FIXTURE_ROOT) === nothing
                 @test WarmTestRunner.status().state == :stopped
+            end
+        end
+    end
+end
+
+@testset "public run selects only changed tests when changed_only=true" begin
+    mktempdir() do tmp
+        withenv("WARMTESTRUNNER_HOME" => tmp) do
+            pkgroot = init_changed_only_public_fixture()
+            write(joinpath(pkgroot, "test", "beta.jl"), "using Test\nprintln(\"beta changed\")\n@test true\n")
+
+            try
+                summary = WarmTestRunner.run(
+                    pkgroot = pkgroot,
+                    jobs = 1,
+                    use_testenv = false,
+                    preload_package = false,
+                    changed_only = true,
+                )
+
+                @test [basename(result.path) for result in summary.results] == ["beta.jl"]
+                @test summary.passed == 1
+                @test summary.failed == 0
+            finally
+                WarmTestRunner.stop(pkgroot = pkgroot)
+                WarmTestRunner.wait_for_record_gone(pkgroot)
             end
         end
     end
