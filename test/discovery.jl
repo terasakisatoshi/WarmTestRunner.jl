@@ -114,4 +114,27 @@ end
             @test isempty(jobs)
         end
     end
+
+    @testset "falls back to full discovery when git is unavailable" begin
+        pkgroot = mktempdir()
+        mkpath(joinpath(pkgroot, "src"))
+        mkpath(joinpath(pkgroot, "test"))
+
+        write(
+            joinpath(pkgroot, "Project.toml"),
+            """
+            name = "ChangedOnlyFixture"
+            uuid = "11111111-2222-3333-4444-555555555555"
+            version = "0.1.0"
+            """,
+        )
+        write(joinpath(pkgroot, "src", "ChangedOnlyFixture.jl"), "module ChangedOnlyFixture\nend\n")
+        write(joinpath(pkgroot, "test", "alpha.jl"), "using Test\n@test true\n")
+        write(joinpath(pkgroot, "test", "beta.jl"), "using Test\n@test true\n")
+
+        discovered = WarmTestRunner.discover_tests(pkgroot)
+        jobs = WarmTestRunner.discover_changed_tests(pkgroot)
+
+        @test [job.name for job in jobs] == [job.name for job in discovered]
+    end
 end
