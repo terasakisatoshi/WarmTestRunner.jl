@@ -22,6 +22,7 @@ Practical summary:
 - Test files run in fresh modules inside reused workers.
 - File-level parallel scheduling, output capture, crash recovery, and `quickfail` work.
 - `changed_only` is implemented as a runtime selection flag.
+- When Git change detection is unavailable or the package is not in a usable Git repo, changed-only selection falls back to the full discovered test set.
 - Several "full spec" features are still intentionally deferred.
 
 ## What Is Implemented
@@ -42,6 +43,8 @@ Current behavior:
   structured `RunSummary`.
 - `run(...; changed_only = true)` selects changed tests with the implemented coarse
   heuristic, including the `src/` fallback to the full discovered set.
+- `run(...; changed_only = true)` also falls back to the full discovered set when Git
+  change detection is unavailable or the package is not in a usable Git repo.
 - `status()` reports daemon state and current active-job count.
 - `stop()` sends a stop request and returns after the controller acknowledges it.
 
@@ -70,6 +73,7 @@ Implemented:
 - Stale registry detection and replacement
 - Active-run `status()` responsiveness
 - Active-run `stop()` responsiveness
+- changed-only fallback when Git diff data is unavailable
 
 ### Configuration Actually Honored
 
@@ -119,7 +123,7 @@ julia --project=. --startup-file=no -e 'include("test/runtests.jl")'
 
 Latest result:
 
-- full suite passed on 2026-04-21
+- full suite passed on 2026-04-22
 
 ## Deferred From The Full Spec
 
