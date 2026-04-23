@@ -303,6 +303,38 @@ end
     end
 end
 
+@testset "malformed registry records are treated as absent" begin
+    mktempdir() do tmp
+        withenv("WARMTESTRUNNER_HOME" => tmp) do
+            cd(FIXTURE_ROOT) do
+                record_path = WarmTestRunner.server_record_path(FIXTURE_ROOT)
+                mkpath(dirname(record_path))
+                open(record_path, "w") do io
+                    TOML.print(io, Dict(
+                        "protocol_version" => 4,
+                        "server_id" => "partial-record",
+                        "pid" => getpid(),
+                        "pkgroot" => FIXTURE_ROOT,
+                    ))
+                end
+
+                @test WarmTestRunner.status(pkgroot = FIXTURE_ROOT).state == :stopped
+
+                handle = WarmTestRunner.serve(jobs = 1)
+                try
+                    current = WarmTestRunner.status()
+                    @test current.state == :idle
+                    @test current.pid == handle.pid
+                    @test current.server_id == handle.server_id
+                finally
+                    WarmTestRunner.stop()
+                    WarmTestRunner.wait_for_record_gone(FIXTURE_ROOT)
+                end
+            end
+        end
+    end
+end
+
 @testset "public run fresh=true refreshes workers without replacing the daemon" begin
     mktempdir() do tmp
         pkgroot, counter_path = init_bootstrap_counter_fixture(tmp)

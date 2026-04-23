@@ -15,6 +15,11 @@ server_record_path(pkgroot::AbstractString) = joinpath(
 
 function write_server_record!(handle::ServerHandle, status::ServerStatus; port::Integer)
     mkpath(registry_root())
+    record_path = server_record_path(handle.pkgroot)
+    temp_path = joinpath(
+        registry_root(),
+        "server-record-$(replace(string(uuid4()), "-" => ""))-$(basename(record_path)).tmp",
+    )
     data = Dict{String, Any}(
         "protocol_version" => SERVER_PROTOCOL_VERSION,
         "server_id" => handle.server_id,
@@ -28,18 +33,40 @@ function write_server_record!(handle::ServerHandle, status::ServerStatus; port::
         "state" => String(status.state),
         "port" => Int(port),
     )
-    open(server_record_path(handle.pkgroot), "w") do io
+    open(temp_path, "w") do io
         TOML.print(io, data)
+        flush(io)
     end
+    mv(temp_path, record_path; force = true)
     return nothing
 end
 
 function load_server_record(pkgroot::AbstractString)
     path = server_record_path(pkgroot)
     isfile(path) || return nothing
-    data = TOML.parsefile(path)
+    data = try
+        TOML.parsefile(path)
+    catch
+        return nothing
+    end
+
+    required_keys = (
+        "server_id",
+        "pid",
+        "pkgroot",
+        "started_at",
+        "jobs",
+        "running_jobs",
+        "last_failed",
+        "last_success_at",
+        "state",
+        "port",
+    )
+    all(haskey(data, key) for key in required_keys) || return nothing
+
     protocol_version = Int(get(data, "protocol_version", 1))
-    last_success_at = data["last_success_at"] == 0.0 ? nothing : Float64(data["last_success_at"])
+    last_success_value = data["last_success_at"]
+    last_success_at = last_success_value == 0.0 ? nothing : Float64(last_success_value)
     return (
         protocol_version = protocol_version,
         handle = ServerHandle(
