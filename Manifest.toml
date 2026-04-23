@@ -2,7 +2,7 @@
 
 julia_version = "1.12.6"
 manifest_format = "2.0"
-project_hash = "6a7281e5d7702189a4d39aacbb3ba6ab3593adb9"
+project_hash = "2b82dd81eb8ac2abdd71eb8cf223a033c80f9719"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -187,7 +187,7 @@ uuid = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
 version = "1.11.0"
 
 [[deps.WarmTestRunner]]
-deps = ["Dates", "Logging", "Malt", "Pkg", "Serialization", "Sockets", "TOML", "Test", "TestEnv", "UUIDs"]
+deps = ["Dates", "FileWatching", "Logging", "Malt", "Pkg", "Serialization", "Sockets", "TOML", "Test", "TestEnv", "UUIDs"]
 path = "."
 uuid = "db108ea0-cb1b-4d84-88da-79a011b31282"
 version = "0.1.0"
