@@ -5,8 +5,8 @@ using Serialization
 using TOML
 
 const FIXTURE_ROOT = joinpath(@__DIR__, "packages", "FixturePkg")
-const PASS_JOB = TestJob(path = joinpath(FIXTURE_ROOT, "test", "pass.jl"), name = "pass.jl")
-const FAIL_JOB = TestJob(path = joinpath(FIXTURE_ROOT, "test", "fail.jl"), name = "fail.jl")
+const PASS_JOB = WarmTestRunner.TestJob(path = joinpath(FIXTURE_ROOT, "test", "pass.jl"), name = "pass.jl")
+const FAIL_JOB = WarmTestRunner.TestJob(path = joinpath(FIXTURE_ROOT, "test", "fail.jl"), name = "fail.jl")
 
 function write_temp_test(dir::AbstractString, name::AbstractString, body::AbstractString)
     path = joinpath(dir, name)
@@ -139,8 +139,8 @@ end
         cfg = WarmTestRunner.make_config(pkgroot = FIXTURE_ROOT, jobs = 2)
         jobs = [
             FAIL_JOB,
-            TestJob(path = slow_pass_path, name = "slow_pass.jl"),
-            TestJob(path = skipped_path, name = "skipped.jl"),
+            WarmTestRunner.TestJob(path = slow_pass_path, name = "slow_pass.jl"),
+            WarmTestRunner.TestJob(path = skipped_path, name = "skipped.jl"),
         ]
 
         summary = WarmTestRunner.run_jobs_inline(cfg, jobs; quickfail = true)
@@ -175,8 +175,8 @@ end
 
         cfg = WarmTestRunner.make_config(pkgroot = FIXTURE_ROOT, jobs = 2)
         jobs = [
-            TestJob(path = slow_path, name = "slow.jl"),
-            TestJob(path = fast_path, name = "fast.jl"),
+            WarmTestRunner.TestJob(path = slow_path, name = "slow.jl"),
+            WarmTestRunner.TestJob(path = fast_path, name = "fast.jl"),
         ]
 
         summary = WarmTestRunner.run_jobs_inline(cfg, jobs)
@@ -218,9 +218,9 @@ end
         try
             WarmTestRunner.stop_worker!(workers[1])
             jobs = [
-                TestJob(path = pass1_path, name = "pass1.jl"),
-                TestJob(path = pass2_path, name = "pass2.jl"),
-                TestJob(path = pass3_path, name = "pass3.jl"),
+                WarmTestRunner.TestJob(path = pass1_path, name = "pass1.jl"),
+                WarmTestRunner.TestJob(path = pass2_path, name = "pass2.jl"),
+                WarmTestRunner.TestJob(path = pass3_path, name = "pass3.jl"),
             ]
 
             summary = WarmTestRunner.schedule_jobs!(workers, jobs, cfg)

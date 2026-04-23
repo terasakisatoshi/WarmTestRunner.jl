@@ -3,8 +3,8 @@ using Malt
 using WarmTestRunner
 
 const FIXTURE_ROOT = joinpath(@__DIR__, "packages", "FixturePkg")
-const PASS_JOB = TestJob(path = joinpath(FIXTURE_ROOT, "test", "pass.jl"), name = "pass.jl")
-const FAIL_JOB = TestJob(path = joinpath(FIXTURE_ROOT, "test", "fail.jl"), name = "fail.jl")
+const PASS_JOB = WarmTestRunner.TestJob(path = joinpath(FIXTURE_ROOT, "test", "pass.jl"), name = "pass.jl")
+const FAIL_JOB = WarmTestRunner.TestJob(path = joinpath(FIXTURE_ROOT, "test", "fail.jl"), name = "fail.jl")
 
 @testset "single malt worker runs fixture tests" begin
     cfg = WarmTestRunner.make_config(pkgroot = FIXTURE_ROOT, jobs = 1)
