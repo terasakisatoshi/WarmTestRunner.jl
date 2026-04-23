@@ -91,19 +91,24 @@ function recreate_worker!(state::ControllerState, index::Int)
 end
 
 function refresh_worker_pool!(state::ControllerState)
-    old_workers = state.workers
     new_workers = start_worker_pool(state.cfg)
+    old_workers = lock(state.lock) do
+        old_workers = state.workers
+        state.workers = new_workers
+        return old_workers
+    end
 
     try
-        state.workers = new_workers
         stop_worker_pool!(old_workers)
-        return nothing
+        return new_workers
     catch
         try
             stop_worker_pool!(new_workers)
         catch
         end
-        state.workers = old_workers
+        lock(state.lock) do
+            state.workers = old_workers
+        end
         rethrow()
     end
 end
@@ -446,9 +451,8 @@ function handle_request!(state::ControllerState, request)
         end
         persist_status!(state)
 
-        fresh = request_payload(request, :fresh, false)
         jobs = try
-            fresh && refresh_worker_pool!(state)
+            request_payload(request, :fresh, false) && refresh_worker_pool!(state)
             previous_failed = lock(state.lock) do
                 copy(state.status.last_failed)
             end
