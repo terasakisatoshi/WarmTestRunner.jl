@@ -595,6 +595,37 @@ end
     end
 end
 
+@testset "public run returns JSON when output_format=json" begin
+    mktempdir() do tmp
+        withenv("WARMTESTRUNNER_HOME" => tmp) do
+            json = try
+                WarmTestRunner.run(
+                    pkgroot = FIXTURE_ROOT,
+                    tests = ["pass.jl"],
+                    jobs = 1,
+                    output_format = :json,
+                )
+            catch err
+                err
+            end
+
+            @test json isa String
+            if json isa String
+                @test occursin("\"schema_version\":1", json)
+                @test occursin("\"passed\":1", json)
+                @test occursin("\"status\":\"passed\"", json)
+                @test occursin("\"path\":", json)
+            end
+
+            try
+                WarmTestRunner.stop(pkgroot = FIXTURE_ROOT)
+                WarmTestRunner.wait_for_record_gone(FIXTURE_ROOT)
+            catch
+            end
+        end
+    end
+end
+
 @testset "changed_only restarts when live registry record is from an older protocol" begin
     mktempdir() do tmp
         withenv("WARMTESTRUNNER_HOME" => tmp) do

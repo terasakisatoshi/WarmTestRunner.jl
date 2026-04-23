@@ -30,6 +30,10 @@ using WarmTestRunner
         rerun_failed = true,
         changed_only = true,
     )
+    @test_throws ArgumentError WarmTestRunner.run(
+        pkgroot = joinpath(@__DIR__, "packages", "FixturePkg"),
+        output_format = :xml,
+    )
 
     summary = WarmTestRunner.RunSummary(
         results = WarmTestRunner.TestResult[],

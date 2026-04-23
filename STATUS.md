@@ -22,6 +22,8 @@ Practical summary:
 - Test files run in fresh modules inside reused workers.
 - File-level parallel scheduling, output capture, crash recovery, and `quickfail` work.
 - `changed_only` is implemented as a runtime selection flag.
+- `watch()` is implemented for debounced source/test path monitoring.
+- `output_format = :json` is implemented for machine-readable run results.
 - When Git change detection is unavailable or the package is not in a usable Git repo, changed-only selection falls back to the full discovered test set.
 - Several "full spec" features are still intentionally deferred.
 
@@ -32,7 +34,8 @@ Practical summary:
 Implemented:
 
 - `serve(; pkgroot, jobs, threads_per_worker, use_testenv, preload_package, startup_file, ...)`
-- `run(; tests = String[], quickfail = false, changed_only = false, rerun_failed = false, fresh = false, retry_crashed = true, kwargs...)`
+- `run(; tests = String[], quickfail = false, changed_only = false, rerun_failed = false, fresh = false, retry_crashed = true, output_format = :text, kwargs...)`
+- `watch(; paths = ["src", "test"], debounce_seconds = 0.5, changed_only = true, kwargs...)`
 - `status(; pkgroot = pwd())`
 - `stop(; pkgroot = pwd())`
 
@@ -41,6 +44,8 @@ Current behavior:
 - `serve()` starts or reuses a daemon for the package root.
 - `run()` connects to the daemon, discovers tests when `tests == []`, and returns a
   structured `RunSummary`.
+- `run(...; output_format = :json)` returns a JSON string preserving summary counts and
+  per-file diagnostics.
 - `run(...; changed_only = true)` selects changed tests with the implemented coarse
   heuristic, including the `src/` fallback to the full discovered set.
 - `run(...; changed_only = true)` also falls back to the full discovered set when Git
@@ -58,6 +63,8 @@ Current behavior:
 - `run(...; retry_crashed = false)` finalizes the first `:crashed` result for that file but still allows later jobs to use recovered workers when scheduling continues.
 - `status()` reports daemon state and current active-job count.
 - `stop()` sends a stop request and returns after the controller acknowledges it.
+- `watch()` monitors existing source/test paths, debounces filesystem events, and reruns
+  through the existing warm runner.
 
 Important note:
 
@@ -87,6 +94,8 @@ Implemented:
 - Active-run `status()` responsiveness
 - Active-run `stop()` responsiveness
 - changed-only fallback when Git diff data is unavailable
+- Debounced watch mode over source/test paths
+- Machine-readable JSON result serialization
 
 ### Configuration Actually Honored
 
@@ -130,6 +139,8 @@ The current test suite covers:
 - daemon request error handling
 - active-run `status()`
 - active-run `stop()`
+- public `watch()`
+- `output_format = :json`
 
 Latest verification command:
 
@@ -145,10 +156,8 @@ Latest result:
 
 Not implemented yet:
 
-- `watch()`
 - `verbose`
 - `seed`
-- `output_format = :json`
 - `Revise.jl` integration
 - full CLI wrapper layer beyond `julia -e 'using WarmTestRunner; ...'`
 - richer filtering modes beyond explicit `tests`
@@ -179,7 +188,7 @@ If measured against the current MVP plan rather than the full spec, the reposito
 
 Most sensible next steps:
 
-1. decide whether the next milestone is `watch()`
+1. decide whether the next milestone is the thin CLI wrapper
 2. implement one deferred feature set at a time behind tests
 3. document the current public contract more explicitly, especially `stop()` semantics
 4. keep using `Pkg.test()` separately as the final clean-room verification path

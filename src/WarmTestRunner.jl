@@ -16,6 +16,7 @@ include("watch.jl")
 export RunnerConfig, RunSummary, ServerHandle, ServerStatus, TestJob, TestResult, WorkerHandle
 export bootstrap_worker!, capture_test_output, discover_tests, parse_warmtest_tags
 export build_jobs, run_jobs_inline, run_test_file_in_module, run_test_in_worker!, schedule_jobs!, start_worker, start_worker_pool, status, stop, stop_worker!, stop_worker_pool!, summarize_results
+export summary_to_json, summary_to_json_data
 export delete_server_record!, load_server_record, registry_root, serve_forever, write_server_record!
 export serve, run
 export watch
@@ -66,7 +67,13 @@ function ensure_retry_crashed_controller!(pkgroot::AbstractString)
     return ensure_protocol_controller!(pkgroot, RETRY_CRASHED_PROTOCOL_VERSION)
 end
 
-function run(; tests = String[], quickfail::Bool = false, changed_only::Bool = false, rerun_failed::Bool = false, fresh::Bool = false, retry_crashed::Bool = true, kwargs...)
+function validate_output_format(output_format::Symbol)
+    output_format in (:text, :json) && return output_format
+    throw(ArgumentError("output_format must be :text or :json"))
+end
+
+function run(; tests = String[], quickfail::Bool = false, changed_only::Bool = false, rerun_failed::Bool = false, fresh::Bool = false, retry_crashed::Bool = true, output_format::Symbol = :text, kwargs...)
+    validate_output_format(output_format)
     !isempty(tests) && changed_only && throw(ArgumentError("changed_only cannot be combined with explicit tests"))
     changed_only && rerun_failed && throw(ArgumentError("changed_only cannot be combined with rerun_failed"))
     cfg = make_config(; kwargs...)
@@ -75,7 +82,7 @@ function run(; tests = String[], quickfail::Bool = false, changed_only::Bool = f
     fresh && ensure_fresh_controller!(cfg.pkgroot)
     !retry_crashed && ensure_retry_crashed_controller!(cfg.pkgroot)
     serve(; kwargs...)
-    return client_request(
+    summary = client_request(
         cfg.pkgroot,
         (
             cmd = :run,
@@ -87,6 +94,8 @@ function run(; tests = String[], quickfail::Bool = false, changed_only::Bool = f
             retry_crashed = retry_crashed,
         ),
     )
+    output_format == :json && return summary_to_json(summary)
+    return summary
 end
 
 function stop(; pkgroot::AbstractString = pwd())
