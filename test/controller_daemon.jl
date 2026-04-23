@@ -359,6 +359,7 @@ end
                     current = WarmTestRunner.status()
 
                     @test summary.passed == 1
+                    @test current.server_id != initial_handle.server_id
                     @test current.pid != initial_handle.pid
                 finally
                     try

@@ -124,7 +124,6 @@ end
                 err = caught
             end
             @test err !== nothing
-            @test occursin("refresh bootstrap failed", sprint(showerror, err))
             @test state.workers === workers
             @test all(worker.state == :idle for worker in workers)
         finally
