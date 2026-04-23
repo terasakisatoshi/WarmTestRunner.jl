@@ -303,6 +303,57 @@ end
     end
 end
 
+@testset "daemon with use_revise=true can be reused by matching calls" begin
+    mktempdir() do tmp
+        withenv("WARMTESTRUNNER_HOME" => tmp) do
+            cd(FIXTURE_ROOT) do
+                handle = WarmTestRunner.serve(jobs = 1, use_revise = true)
+                stop_err = nothing
+                try
+                    reused = WarmTestRunner.serve(jobs = 1)
+                    summary = WarmTestRunner.run(tests = ["pass.jl"])
+                    current = WarmTestRunner.status()
+
+                    @test reused.server_id == handle.server_id
+                    @test summary.passed == 1
+                    @test current.server_id == handle.server_id
+                    @test current.state == :idle
+                finally
+                    try
+                        WarmTestRunner.stop()
+                    catch err
+                        stop_err = err
+                    end
+                    WarmTestRunner.wait_for_record_gone(FIXTURE_ROOT)
+                    stop_err === nothing || rethrow(stop_err)
+                end
+            end
+        end
+    end
+end
+
+@testset "explicit use_revise mismatch is rejected for live daemon reuse" begin
+    mktempdir() do tmp
+        withenv("WARMTESTRUNNER_HOME" => tmp) do
+            cd(FIXTURE_ROOT) do
+                WarmTestRunner.serve(jobs = 1, use_revise = true)
+                stop_err = nothing
+                try
+                    @test_throws ArgumentError WarmTestRunner.serve(jobs = 1, use_revise = false)
+                finally
+                    try
+                        WarmTestRunner.stop()
+                    catch err
+                        stop_err = err
+                    end
+                    WarmTestRunner.wait_for_record_gone(FIXTURE_ROOT)
+                    stop_err === nothing || rethrow(stop_err)
+                end
+            end
+        end
+    end
+end
+
 @testset "malformed registry records are treated as absent" begin
     mktempdir() do tmp
         withenv("WARMTESTRUNNER_HOME" => tmp) do
