@@ -79,7 +79,7 @@ Implemented:
 - Ordered result aggregation
 - `quickfail` with skipped-result preservation
 - `rerun_failed` selection using persisted failing-file state
-- in-process worker-pool refresh via fresh = true
+- in-process worker-pool refresh via `fresh = true`
 - Stale registry detection and replacement
 - Active-run `status()` responsiveness
 - Active-run `stop()` responsiveness
