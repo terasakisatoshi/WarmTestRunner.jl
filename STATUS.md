@@ -52,7 +52,8 @@ Current behavior:
 - `run(...; rerun_failed = true)` returns an empty `RunSummary` when there is no recorded
   failing-file history.
 - `run(...; fresh = true)` recreates the existing daemon's worker pool before selecting and scheduling jobs.
-- `run(...; fresh = true)` preserves daemon identity and registry ownership while discarding warm worker state.
+- `run(...; fresh = true)` preserves daemon identity and registry ownership while discarding warm worker state when the live daemon already supports the `fresh` protocol.
+- when protocol compatibility is too old, run(...; fresh = true) restarts the daemon before running.
 - `status()` reports daemon state and current active-job count.
 - `stop()` sends a stop request and returns after the controller acknowledges it.
 
@@ -79,7 +80,7 @@ Implemented:
 - Ordered result aggregation
 - `quickfail` with skipped-result preservation
 - `rerun_failed` selection using persisted failing-file state
-- in-process worker-pool refresh via `fresh = true`
+- controller-side in-process worker-pool refresh via `fresh = true`
 - Stale registry detection and replacement
 - Active-run `status()` responsiveness
 - Active-run `stop()` responsiveness
@@ -120,6 +121,7 @@ The current test suite covers:
 - worker transport crash after stop
 - inline scheduler ordering
 - inline and public `quickfail`
+- public `fresh` worker-pool refresh
 - crash recovery and worker recreation
 - stale registry replacement
 - daemon request error handling
