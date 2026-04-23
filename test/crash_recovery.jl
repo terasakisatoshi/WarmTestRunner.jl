@@ -3,9 +3,9 @@ using WarmTestRunner
 
 const FIXTURE_ROOT = joinpath(@__DIR__, "packages", "FixturePkg")
 
-function with_fixture_daemon(f::Function; jobs::Int = 1)
+function with_fixture_daemon(f::Function; jobs::Int = 1, env = Pair{String,String}[])
     mktempdir() do tmp
-        withenv("WARMTESTRUNNER_HOME" => tmp) do
+        withenv("WARMTESTRUNNER_HOME" => tmp, env...) do
             cd(FIXTURE_ROOT) do
                 WarmTestRunner.serve(jobs = jobs)
                 try
@@ -55,7 +55,7 @@ end
             @test getfield.(recovered.results, :status) == [:passed]
         end
     end
-    
+
     @testset "daemon continues later jobs after a permanent crash when quickfail=false" begin
         with_fixture_daemon() do
             summary = WarmTestRunner.run(tests = ["crash.jl", "pass.jl"], quickfail = false)
@@ -64,7 +64,7 @@ end
             @test summary.passed == 1
         end
     end
-    
+
     @testset "public retry_crashed=false finalizes the first crash and continues later jobs" begin
         with_fixture_daemon() do
             summary = WarmTestRunner.run(tests = ["crash.jl", "pass.jl"], quickfail = false, retry_crashed = false)
@@ -73,7 +73,43 @@ end
             @test summary.passed == 1
         end
     end
-    
+
+    @testset "public retry_crashed retries a one-shot crash by default" begin
+        mktempdir() do tmp
+            marker = joinpath(tmp, "crash-once-default.marker")
+            with_fixture_daemon(env = ["WARMTEST_CRASH_ONCE_MARKER" => marker]) do
+                summary = WarmTestRunner.run(tests = ["crash_once.jl"])
+                @test getfield.(summary.results, :status) == [:passed]
+                @test summary.passed == 1
+                @test isfile(marker)
+            end
+        end
+    end
+
+    @testset "public retry_crashed=true retries a one-shot crash" begin
+        mktempdir() do tmp
+            marker = joinpath(tmp, "crash-once-true.marker")
+            with_fixture_daemon(env = ["WARMTEST_CRASH_ONCE_MARKER" => marker]) do
+                summary = WarmTestRunner.run(tests = ["crash_once.jl"], retry_crashed = true)
+                @test getfield.(summary.results, :status) == [:passed]
+                @test summary.passed == 1
+                @test isfile(marker)
+            end
+        end
+    end
+
+    @testset "public retry_crashed=false does not retry a one-shot crash" begin
+        mktempdir() do tmp
+            marker = joinpath(tmp, "crash-once-false.marker")
+            with_fixture_daemon(env = ["WARMTEST_CRASH_ONCE_MARKER" => marker]) do
+                summary = WarmTestRunner.run(tests = ["crash_once.jl"], retry_crashed = false)
+                @test getfield.(summary.results, :status) == [:crashed]
+                @test summary.crashed == 1
+                @test isfile(marker)
+            end
+        end
+    end
+
     @testset "recreate_worker! preserves the old worker on bootstrap failure" begin
         mktempdir() do tmp
             bad_root = joinpath(tmp, "BadFixture")
@@ -115,7 +151,7 @@ end
             end
         end
     end
-    
+
     @testset "refresh_worker_pool! preserves the old pool on bootstrap failure" begin
         mktempdir() do tmp
             bad_root = joinpath(tmp, "BadRefreshFixture")
@@ -164,7 +200,7 @@ end
             end
         end
     end
-    
+
     @testset "inline scheduler quickfail preserves skipped ordering" begin
         cfg = WarmTestRunner.make_config(pkgroot = FIXTURE_ROOT, jobs = 1)
         jobs = [
@@ -178,7 +214,7 @@ end
         @test summary.failed == 1
         @test summary.skipped == 1
     end
-    
+
     @testset "schedule_jobs! recreates a worker for later jobs even when retry_crashed=false" begin
         with_worker_pool() do cfg, workers
             WarmTestRunner.stop_worker!(workers[1])
@@ -201,7 +237,7 @@ end
             @test summary.passed == 1
         end
     end
-    
+
     @testset "quickfail waits for recovered crash result" begin
         with_worker_pool() do cfg, workers
             WarmTestRunner.stop_worker!(workers[1])
@@ -224,7 +260,7 @@ end
             @test summary.skipped == 0
         end
     end
-    
+
     @testset "public quickfail keeps skipped ordering after a retried crash" begin
         with_fixture_daemon() do
             summary = WarmTestRunner.run(tests = ["crash.jl", "pass.jl"], quickfail = true)
@@ -233,13 +269,17 @@ end
             @test summary.skipped == 1
         end
     end
-    
+
     @testset "public quickfail stops immediately when retry_crashed=false finalizes a crash" begin
         with_fixture_daemon() do
             summary = WarmTestRunner.run(tests = ["crash.jl", "pass.jl"], quickfail = true, retry_crashed = false)
             @test getfield.(summary.results, :status) == [:crashed, :skipped]
             @test summary.crashed == 1
             @test summary.skipped == 1
+
+            recovered = WarmTestRunner.run(tests = ["pass.jl"], retry_crashed = false)
+            @test getfield.(recovered.results, :status) == [:passed]
+            @test recovered.passed == 1
         end
     end
 end

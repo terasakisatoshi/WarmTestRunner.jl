@@ -182,8 +182,9 @@ function schedule_jobs!(
                         else
                             results[idx] = final_result
                             mark_quickfail!(final_result)
-                            (quickfail || should_stop!()) && break
+                            should_stop!() && break
                             worker = recover_worker!(worker_index)
+                            quickfail && break
                         end
                     else
                         results[idx] = final_result
@@ -357,6 +358,9 @@ function launch_controller(cfg::RunnerConfig)
     logs = controller_log_paths()
     stdout_io = open(logs.stdout, "w")
     stderr_io = open(logs.stderr, "w")
+    controller_env = copy(ENV)
+    controller_env["JULIA_PROJECT"] = cfg.tool_project
+    controller_env["WARMTESTRUNNER_HOME"] = get(ENV, "WARMTESTRUNNER_HOME", joinpath(homedir(), ".julia", "warmtestrunner"))
     request = """
         using WarmTestRunner
         cfg = WarmTestRunner.make_config(;
@@ -377,8 +381,7 @@ function launch_controller(cfg::RunnerConfig)
     cmd = pipeline(
         setenv(
             `$(Base.julia_cmd()) --startup-file=no -e $request`,
-            "JULIA_PROJECT" => cfg.tool_project,
-            "WARMTESTRUNNER_HOME" => get(ENV, "WARMTESTRUNNER_HOME", joinpath(homedir(), ".julia", "warmtestrunner")),
+            controller_env,
         ),
         stdin = devnull,
         stdout = stdout_io,
