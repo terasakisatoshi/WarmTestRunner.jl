@@ -3,75 +3,101 @@ using WarmTestRunner
 
 const FIXTURE_ROOT = joinpath(@__DIR__, "packages", "FixturePkg")
 
-@testset "daemon recovers a crashed worker and retries later jobs" begin
+function capture_call(f::Function)
+    result = nothing
+    err = nothing
+    try
+        result = f()
+    catch caught
+        err = caught
+    end
+    return result, err
+end
+
+function with_fixture_daemon(f::Function; jobs::Int = 1)
     mktempdir() do tmp
         withenv("WARMTESTRUNNER_HOME" => tmp) do
             cd(FIXTURE_ROOT) do
-                handle = WarmTestRunner.serve(jobs = 1)
+                WarmTestRunner.serve(jobs = jobs)
                 try
-                    crashed = WarmTestRunner.run(tests = ["crash.jl"])
-                    @test crashed.crashed == 1
-                    @test getfield.(crashed.results, :status) == [:crashed]
-
-                    recovered = WarmTestRunner.run(tests = ["pass.jl"])
-                    @test recovered.passed == 1
-                    @test getfield.(recovered.results, :status) == [:passed]
+                    f()
                 finally
                     WarmTestRunner.stop()
                 end
             end
         end
+    end
+end
+
+function with_worker_pool(f::Function; jobs::Int = 1)
+    cfg = WarmTestRunner.make_config(pkgroot = FIXTURE_ROOT, jobs = jobs)
+    workers = WarmTestRunner.start_worker_pool(cfg)
+    try
+        f(cfg, workers)
+    finally
+        WarmTestRunner.stop_worker_pool!(workers)
+    end
+end
+
+function controller_state(cfg, workers; pkgroot = FIXTURE_ROOT, server_id = "test-server")
+    WarmTestRunner.ControllerState(
+        cfg = cfg,
+        handle = WarmTestRunner.ServerHandle(
+            pkgroot = pkgroot,
+            server_id = server_id,
+            pid = getpid(),
+            started_at = time(),
+            jobs = cfg.jobs,
+        ),
+        status = WarmTestRunner.ServerStatus(pkgroot = pkgroot),
+        workers = workers,
+    )
+end
+
+function run_testset(name::AbstractString, f::Function)
+    try
+        @testset "$name" begin
+            f()
+        end
+    catch caught
+        caught isa Test.TestSetException || rethrow(caught)
+    end
+end
+
+@testset "daemon recovers a crashed worker and retries later jobs" begin
+    with_fixture_daemon() do
+        crashed = WarmTestRunner.run(tests = ["crash.jl"])
+        @test crashed.crashed == 1
+        @test getfield.(crashed.results, :status) == [:crashed]
+
+        recovered = WarmTestRunner.run(tests = ["pass.jl"])
+        @test recovered.passed == 1
+        @test getfield.(recovered.results, :status) == [:passed]
     end
 end
 
 @testset "daemon continues later jobs after a permanent crash when quickfail=false" begin
-    mktempdir() do tmp
-        withenv("WARMTESTRUNNER_HOME" => tmp) do
-            cd(FIXTURE_ROOT) do
-                WarmTestRunner.serve(jobs = 1)
-                try
-                    summary = WarmTestRunner.run(tests = ["crash.jl", "pass.jl"], quickfail = false)
-                    @test getfield.(summary.results, :status) == [:crashed, :passed]
-                    @test summary.crashed == 1
-                    @test summary.passed == 1
-                finally
-                    WarmTestRunner.stop()
-                end
-            end
-        end
+    with_fixture_daemon() do
+        summary = WarmTestRunner.run(tests = ["crash.jl", "pass.jl"], quickfail = false)
+        @test getfield.(summary.results, :status) == [:crashed, :passed]
+        @test summary.crashed == 1
+        @test summary.passed == 1
     end
 end
 
-try
-    @testset "public retry_crashed=false finalizes the first crash and continues later jobs" begin
-        mktempdir() do tmp
-            withenv("WARMTESTRUNNER_HOME" => tmp) do
-                cd(FIXTURE_ROOT) do
-                    WarmTestRunner.serve(jobs = 1)
-                    try
-                        summary = nothing
-                        err = nothing
-                        try
-                            summary = WarmTestRunner.run(tests = ["crash.jl", "pass.jl"], quickfail = false, retry_crashed = false)
-                        catch caught
-                            err = caught
-                        end
-                        @test err === nothing
-                        if err === nothing
-                            @test getfield.(summary.results, :status) == [:crashed, :passed]
-                            @test summary.crashed == 1
-                            @test summary.passed == 1
-                        end
-                    finally
-                        WarmTestRunner.stop()
-                    end
-                end
-            end
+run_testset("public retry_crashed=false finalizes the first crash and continues later jobs", () -> begin
+    with_fixture_daemon() do
+        summary, err = capture_call() do
+            WarmTestRunner.run(tests = ["crash.jl", "pass.jl"], quickfail = false, retry_crashed = false)
+        end
+        @test err === nothing
+        if err === nothing
+            @test getfield.(summary.results, :status) == [:crashed, :passed]
+            @test summary.crashed == 1
+            @test summary.passed == 1
         end
     end
-catch caught
-    caught isa Test.TestSetException || rethrow(caught)
-end
+end)
 
 @testset "recreate_worker! preserves the old worker on bootstrap failure" begin
     mktempdir() do tmp
@@ -178,79 +204,43 @@ end
     @test summary.skipped == 1
 end
 
-try
-    @testset "schedule_jobs! recreates a worker for later jobs even when retry_crashed=false" begin
-        cfg = WarmTestRunner.make_config(pkgroot = FIXTURE_ROOT, jobs = 1)
-        workers = WarmTestRunner.start_worker_pool(cfg)
-        try
-            WarmTestRunner.stop_worker!(workers[1])
-            jobs = [
-                TestJob(path = joinpath(FIXTURE_ROOT, "test", "pass.jl"), name = "pass.jl"),
-                TestJob(path = joinpath(FIXTURE_ROOT, "test", "pass.jl"), name = "pass.jl"),
-            ]
-            state = WarmTestRunner.ControllerState(
-                cfg = cfg,
-                handle = WarmTestRunner.ServerHandle(
-                    pkgroot = FIXTURE_ROOT,
-                    server_id = "test-server",
-                    pid = getpid(),
-                    started_at = time(),
-                    jobs = 1,
-                ),
-                status = WarmTestRunner.ServerStatus(pkgroot = FIXTURE_ROOT),
-                workers = workers,
-            )
-
-            summary = nothing
-            err = nothing
-            try
-                summary = WarmTestRunner.schedule_jobs!(
-                    workers,
-                    jobs,
-                    cfg;
-                    quickfail = false,
-                    retry_crashed = false,
-                    recover_worker! = index -> WarmTestRunner.recreate_worker!(state, index),
-                )
-            catch caught
-                err = caught
-            end
-
-            @test err === nothing
-            if err === nothing
-                @test getfield.(summary.results, :status) == [:crashed, :passed]
-                @test summary.crashed == 1
-                @test summary.passed == 1
-            end
-        finally
-            WarmTestRunner.stop_worker_pool!(workers)
-        end
-    end
-catch caught
-    caught isa Test.TestSetException || rethrow(caught)
-end
-
-@testset "quickfail waits for recovered crash result" begin
-    cfg = WarmTestRunner.make_config(pkgroot = FIXTURE_ROOT, jobs = 1)
-    workers = WarmTestRunner.start_worker_pool(cfg)
-    try
+run_testset("schedule_jobs! recreates a worker for later jobs even when retry_crashed=false", () -> begin
+    with_worker_pool() do cfg, workers
         WarmTestRunner.stop_worker!(workers[1])
         jobs = [
             TestJob(path = joinpath(FIXTURE_ROOT, "test", "pass.jl"), name = "pass.jl"),
             TestJob(path = joinpath(FIXTURE_ROOT, "test", "pass.jl"), name = "pass.jl"),
         ]
-        state = WarmTestRunner.ControllerState(
-            cfg = cfg,
-            handle = WarmTestRunner.ServerHandle(
-                pkgroot = FIXTURE_ROOT,
-                server_id = "test-server",
-                pid = getpid(),
-                started_at = time(),
-                jobs = 1,
-            ),
-            status = WarmTestRunner.ServerStatus(pkgroot = FIXTURE_ROOT),
-            workers = workers,
-        )
+        state = controller_state(cfg, workers)
+
+        summary, err = capture_call() do
+            WarmTestRunner.schedule_jobs!(
+                workers,
+                jobs,
+                cfg;
+                quickfail = false,
+                retry_crashed = false,
+                recover_worker! = index -> WarmTestRunner.recreate_worker!(state, index),
+            )
+        end
+
+        @test err === nothing
+        if err === nothing
+            @test getfield.(summary.results, :status) == [:crashed, :passed]
+            @test summary.crashed == 1
+            @test summary.passed == 1
+        end
+    end
+end)
+
+@testset "quickfail waits for recovered crash result" begin
+    with_worker_pool() do cfg, workers
+        WarmTestRunner.stop_worker!(workers[1])
+        jobs = [
+            TestJob(path = joinpath(FIXTURE_ROOT, "test", "pass.jl"), name = "pass.jl"),
+            TestJob(path = joinpath(FIXTURE_ROOT, "test", "pass.jl"), name = "pass.jl"),
+        ]
+        state = controller_state(cfg, workers)
 
         summary = WarmTestRunner.schedule_jobs!(
             workers,
@@ -263,56 +253,28 @@ end
         @test getfield.(summary.results, :status) == [:passed, :passed]
         @test summary.passed == 2
         @test summary.skipped == 0
-    finally
-        WarmTestRunner.stop_worker_pool!(workers)
     end
 end
 
 @testset "public quickfail keeps skipped ordering after a retried crash" begin
-    mktempdir() do tmp
-        withenv("WARMTESTRUNNER_HOME" => tmp) do
-            cd(FIXTURE_ROOT) do
-                WarmTestRunner.serve(jobs = 1)
-                try
-                    summary = WarmTestRunner.run(tests = ["crash.jl", "pass.jl"], quickfail = true)
-                    @test getfield.(summary.results, :status) == [:crashed, :skipped]
-                    @test summary.crashed == 1
-                    @test summary.skipped == 1
-                finally
-                    WarmTestRunner.stop()
-                end
-            end
-        end
+    with_fixture_daemon() do
+        summary = WarmTestRunner.run(tests = ["crash.jl", "pass.jl"], quickfail = true)
+        @test getfield.(summary.results, :status) == [:crashed, :skipped]
+        @test summary.crashed == 1
+        @test summary.skipped == 1
     end
 end
 
-try
-    @testset "public quickfail stops immediately when retry_crashed=false finalizes a crash" begin
-        mktempdir() do tmp
-            withenv("WARMTESTRUNNER_HOME" => tmp) do
-                cd(FIXTURE_ROOT) do
-                    WarmTestRunner.serve(jobs = 1)
-                    try
-                        summary = nothing
-                        err = nothing
-                        try
-                            summary = WarmTestRunner.run(tests = ["crash.jl", "pass.jl"], quickfail = true, retry_crashed = false)
-                        catch caught
-                            err = caught
-                        end
-                        @test err === nothing
-                        if err === nothing
-                            @test getfield.(summary.results, :status) == [:crashed, :skipped]
-                            @test summary.crashed == 1
-                            @test summary.skipped == 1
-                        end
-                    finally
-                        WarmTestRunner.stop()
-                    end
-                end
-            end
+run_testset("public quickfail stops immediately when retry_crashed=false finalizes a crash", () -> begin
+    with_fixture_daemon() do
+        summary, err = capture_call() do
+            WarmTestRunner.run(tests = ["crash.jl", "pass.jl"], quickfail = true, retry_crashed = false)
+        end
+        @test err === nothing
+        if err === nothing
+            @test getfield.(summary.results, :status) == [:crashed, :skipped]
+            @test summary.crashed == 1
+            @test summary.skipped == 1
         end
     end
-catch caught
-    caught isa Test.TestSetException || rethrow(caught)
-end
+end)
