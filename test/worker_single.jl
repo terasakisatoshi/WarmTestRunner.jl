@@ -72,6 +72,22 @@ end
     end
 end
 
+@testset "single malt worker loads Revise when requested" begin
+    cfg = WarmTestRunner.make_config(pkgroot = FIXTURE_ROOT, jobs = 1, use_revise = true)
+    worker = WarmTestRunner.start_worker(cfg; id = 5)
+
+    try
+        WarmTestRunner.bootstrap_worker!(worker, cfg)
+        @test worker.state == :idle
+        @test Malt.remote_eval_fetch(worker.proc, :(isdefined(Main, :Revise))) === true
+        @test Malt.remote_eval_fetch(worker.proc, :(Main.WARMTEST_REVISE_LOADED)) === true
+        @test Malt.remote_eval_fetch(worker.proc, :(Main.WARMTEST_ACTIVATION_STRATEGY)) == :pkg_activate_fallback
+    finally
+        WarmTestRunner.stop_worker!(worker)
+        @test worker.state == :stopped
+    end
+end
+
 @testset "single malt worker reports crashed transport after stop" begin
     cfg = WarmTestRunner.make_config(pkgroot = FIXTURE_ROOT, jobs = 1)
     worker = WarmTestRunner.start_worker(cfg; id = 3)
