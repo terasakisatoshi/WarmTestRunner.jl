@@ -116,9 +116,17 @@ end
         )
 
         try
-            @test_throws Exception WarmTestRunner.refresh_worker_pool!(state)
+            err = nothing
+            try
+                WarmTestRunner.refresh_worker_pool!(state)
+                @test false
+            catch caught
+                err = caught
+            end
+            @test err !== nothing
+            @test occursin("refresh bootstrap failed", sprint(showerror, err))
             @test state.workers === workers
-            @test all(worker.state == :ready for worker in workers)
+            @test all(worker.state == :idle for worker in workers)
         finally
             WarmTestRunner.stop_worker_pool!(workers)
         end

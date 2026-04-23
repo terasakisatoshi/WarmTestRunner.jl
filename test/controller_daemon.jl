@@ -66,6 +66,45 @@ function init_changed_only_public_fixture()
     return pkgroot
 end
 
+function init_bootstrap_counter_fixture(tmp::AbstractString)
+    pkgroot = joinpath(tmp, "BootstrapCounterFixture")
+    mkpath(joinpath(pkgroot, "src"))
+    mkpath(joinpath(pkgroot, "test"))
+
+    counter_path = joinpath(pkgroot, "bootstrap-counter.txt")
+    counter_literal = repr(counter_path)
+
+    write(
+        joinpath(pkgroot, "Project.toml"),
+        """
+        name = "BootstrapCounterFixture"
+        uuid = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
+        version = "0.1.0"
+        """,
+    )
+    write(joinpath(pkgroot, "src", "BootstrapCounterFixture.jl"), "module BootstrapCounterFixture\nend\n")
+    write(
+        joinpath(pkgroot, "test", "warmtest_bootstrap.jl"),
+        """
+        counter_path = $counter_literal
+        count = isfile(counter_path) ? parse(Int, strip(read(counter_path, String))) : 0
+        open(counter_path, "w") do io
+            write(io, string(count + 1))
+        end
+        """,
+    )
+    write(
+        joinpath(pkgroot, "test", "bootstrap_counter.jl"),
+        """
+        using Test
+        counter_path = $counter_literal
+        counter = parse(Int, strip(read(counter_path, String)))
+        @test counter >= 1
+        """,
+    )
+    return pkgroot, counter_path
+end
+
 @testset "inline scheduler runs pass and fail files" begin
     cfg = WarmTestRunner.make_config(pkgroot = FIXTURE_ROOT, jobs = 2)
     jobs = [PASS_JOB, FAIL_JOB]
@@ -266,23 +305,35 @@ end
 
 @testset "public run fresh=true refreshes workers without replacing the daemon" begin
     mktempdir() do tmp
+        pkgroot, counter_path = init_bootstrap_counter_fixture(tmp)
         withenv("WARMTESTRUNNER_HOME" => tmp) do
-            cd(FIXTURE_ROOT) do
+            cd(pkgroot) do
                 WarmTestRunner.serve(jobs = 1)
+                stop_err = nothing
                 try
                     before = WarmTestRunner.status()
-                    first = WarmTestRunner.run(tests = ["pass.jl"])
-                    refreshed = WarmTestRunner.run(tests = ["pass.jl"], fresh = true)
+                    first = WarmTestRunner.run(tests = ["bootstrap_counter.jl"])
+                    counter_before = parse(Int, strip(read(counter_path, String)))
+                    refreshed = WarmTestRunner.run(tests = ["bootstrap_counter.jl"], fresh = true)
+                    counter_after = parse(Int, strip(read(counter_path, String)))
                     after = WarmTestRunner.status()
-                    followup = WarmTestRunner.run(tests = ["pass.jl"])
+                    followup = WarmTestRunner.run(tests = ["bootstrap_counter.jl"])
 
                     @test first.passed == 1
                     @test refreshed.passed == 1
                     @test followup.passed == 1
+                    @test counter_after > counter_before
+                    @test counter_after == counter_before + 1
                     @test status_identity(after) == status_identity(before)
                     @test after.state == :idle
                 finally
-                    WarmTestRunner.stop()
+                    try
+                        WarmTestRunner.stop()
+                    catch err
+                        stop_err = err
+                    end
+                    WarmTestRunner.wait_for_record_gone(pkgroot)
+                    stop_err === nothing || rethrow(stop_err)
                 end
             end
         end
@@ -297,22 +348,26 @@ end
 
                 record_path = WarmTestRunner.server_record_path(FIXTURE_ROOT)
                 record_data = TOML.parsefile(record_path)
-                record_data["protocol_version"] = 3
+                record_data["protocol_version"] = 0
                 open(record_path, "w") do io
                     TOML.print(io, record_data)
                 end
 
+                stop_err = nothing
                 try
                     summary = WarmTestRunner.run(tests = ["pass.jl"], fresh = true)
                     current = WarmTestRunner.status()
 
                     @test summary.passed == 1
-                    @test current.server_id != initial_handle.server_id
+                    @test current.pid != initial_handle.pid
                 finally
                     try
                         WarmTestRunner.stop()
-                    catch
+                    catch err
+                        stop_err = err
                     end
+                    WarmTestRunner.wait_for_record_gone(FIXTURE_ROOT)
+                    stop_err === nothing || rethrow(stop_err)
                 end
             end
         end
