@@ -22,6 +22,8 @@ Practical summary:
 - Test files run in fresh modules inside reused workers.
 - File-level parallel scheduling, output capture, crash recovery, and `quickfail` work.
 - `changed_only` is implemented as a runtime selection flag.
+- `fresh` is implemented as a runtime refresh flag that replaces the worker pool
+  without replacing the daemon process.
 - When Git change detection is unavailable or the package is not in a usable Git repo, changed-only selection falls back to the full discovered test set.
 - Several "full spec" features are still intentionally deferred.
 
@@ -32,7 +34,7 @@ Practical summary:
 Implemented:
 
 - `serve(; pkgroot, jobs, threads_per_worker, use_testenv, preload_package, startup_file, ...)`
-- `run(; tests = String[], quickfail = false, changed_only = false, rerun_failed = false, kwargs...)`
+- `run(; tests = String[], quickfail = false, changed_only = false, rerun_failed = false, fresh = false, kwargs...)`
 - `status(; pkgroot = pwd())`
 - `stop(; pkgroot = pwd())`
 
@@ -51,6 +53,8 @@ Current behavior:
   the previously failing files while preserving the explicit order.
 - `run(...; rerun_failed = true)` returns an empty `RunSummary` when there is no recorded
   failing-file history.
+- `run(...; fresh = true)` refreshes the controller worker pool while keeping the same
+  daemon process and registry identity.
 - `status()` reports daemon state and current active-job count.
 - `stop()` sends a stop request and returns after the controller acknowledges it.
 
@@ -77,6 +81,7 @@ Implemented:
 - Ordered result aggregation
 - `quickfail` with skipped-result preservation
 - `rerun_failed` selection using persisted failing-file state
+- `fresh` worker-pool refresh with daemon identity preservation
 - Stale registry detection and replacement
 - Active-run `status()` responsiveness
 - Active-run `stop()` responsiveness
@@ -117,6 +122,7 @@ The current test suite covers:
 - worker transport crash after stop
 - inline scheduler ordering
 - inline and public `quickfail`
+- public `fresh` worker-pool refresh
 - crash recovery and worker recreation
 - stale registry replacement
 - daemon request error handling
@@ -132,13 +138,13 @@ julia --project=. --startup-file=no -e 'include("test/runtests.jl")'
 Latest result:
 
 - full suite passed on 2026-04-23
+- `Pkg.test()` passed on 2026-04-23
 
 ## Deferred From The Full Spec
 
 Not implemented yet:
 
 - `watch()`
-- `fresh`
 - `retry_crashed` as a public option
 - `verbose`
 - `seed`
