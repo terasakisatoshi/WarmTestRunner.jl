@@ -90,6 +90,24 @@ function recreate_worker!(state::ControllerState, index::Int)
     end
 end
 
+function refresh_worker_pool!(state::ControllerState)
+    old_workers = state.workers
+    new_workers = start_worker_pool(state.cfg)
+
+    try
+        state.workers = new_workers
+        stop_worker_pool!(old_workers)
+        return nothing
+    catch
+        try
+            stop_worker_pool!(new_workers)
+        catch
+        end
+        state.workers = old_workers
+        rethrow()
+    end
+end
+
 function schedule_jobs!(
     workers::AbstractVector{<:WorkerHandle},
     jobs::AbstractVector{<:TestJob},
@@ -428,7 +446,9 @@ function handle_request!(state::ControllerState, request)
         end
         persist_status!(state)
 
+        fresh = request_payload(request, :fresh, false)
         jobs = try
+            fresh && refresh_worker_pool!(state)
             previous_failed = lock(state.lock) do
                 copy(state.status.last_failed)
             end
