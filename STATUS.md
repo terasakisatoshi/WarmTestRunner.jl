@@ -83,7 +83,6 @@ Implemented:
 - `quickfail` with skipped-result preservation
 - `rerun_failed` selection using persisted failing-file state
 - controller-side in-process worker-pool refresh via `fresh = true`
-- public `retry_crashed` crash-recovery control
 - Stale registry detection and replacement
 - Active-run `status()` responsiveness
 - Active-run `stop()` responsiveness
@@ -126,6 +125,7 @@ The current test suite covers:
 - inline and public `quickfail`
 - public `fresh` worker-pool refresh
 - crash recovery and worker recreation
+- public `retry_crashed` crash-recovery control
 - stale registry replacement
 - daemon request error handling
 - active-run `status()`
