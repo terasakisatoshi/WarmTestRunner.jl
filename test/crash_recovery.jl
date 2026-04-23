@@ -204,8 +204,8 @@ end
     @testset "inline scheduler quickfail preserves skipped ordering" begin
         cfg = WarmTestRunner.make_config(pkgroot = FIXTURE_ROOT, jobs = 1)
         jobs = [
-            TestJob(path = joinpath(FIXTURE_ROOT, "test", "fail.jl"), name = "fail.jl"),
-            TestJob(path = joinpath(FIXTURE_ROOT, "test", "pass.jl"), name = "pass.jl"),
+            WarmTestRunner.TestJob(path = joinpath(FIXTURE_ROOT, "test", "fail.jl"), name = "fail.jl"),
+            WarmTestRunner.TestJob(path = joinpath(FIXTURE_ROOT, "test", "pass.jl"), name = "pass.jl"),
         ]
 
         summary = WarmTestRunner.run_jobs_inline(cfg, jobs; quickfail = true)
@@ -219,8 +219,8 @@ end
         with_worker_pool() do cfg, workers
             WarmTestRunner.stop_worker!(workers[1])
             jobs = [
-                TestJob(path = joinpath(FIXTURE_ROOT, "test", "pass.jl"), name = "pass.jl"),
-                TestJob(path = joinpath(FIXTURE_ROOT, "test", "pass.jl"), name = "pass.jl"),
+                WarmTestRunner.TestJob(path = joinpath(FIXTURE_ROOT, "test", "pass.jl"), name = "pass.jl"),
+                WarmTestRunner.TestJob(path = joinpath(FIXTURE_ROOT, "test", "pass.jl"), name = "pass.jl"),
             ]
             state = controller_state(cfg, workers)
 
@@ -242,8 +242,8 @@ end
         with_worker_pool() do cfg, workers
             WarmTestRunner.stop_worker!(workers[1])
             jobs = [
-                TestJob(path = joinpath(FIXTURE_ROOT, "test", "pass.jl"), name = "pass.jl"),
-                TestJob(path = joinpath(FIXTURE_ROOT, "test", "pass.jl"), name = "pass.jl"),
+                WarmTestRunner.TestJob(path = joinpath(FIXTURE_ROOT, "test", "pass.jl"), name = "pass.jl"),
+                WarmTestRunner.TestJob(path = joinpath(FIXTURE_ROOT, "test", "pass.jl"), name = "pass.jl"),
             ]
             state = controller_state(cfg, workers)
 

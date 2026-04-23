@@ -7,6 +7,7 @@ using WarmTestRunner
     @test isdefined(WarmTestRunner, :stop)
     @test isdefined(WarmTestRunner, :status)
     @test isdefined(WarmTestRunner, :watch)
+    @test setdiff(names(WarmTestRunner), [:WarmTestRunner]) == [:run, :serve, :status, :stop, :watch]
 
     cfg = WarmTestRunner.RunnerConfig(pkgroot = pwd(), jobs = 2)
     @test cfg.jobs == 2

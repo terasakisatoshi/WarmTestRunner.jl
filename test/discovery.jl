@@ -76,8 +76,8 @@ end
             err
         end
 
-        @test jobs isa Vector{TestJob}
-        if jobs isa Vector{TestJob}
+        @test jobs isa Vector{WarmTestRunner.TestJob}
+        if jobs isa Vector{WarmTestRunner.TestJob}
             @test sort([job.name for job in jobs]) == ["alpha.jl", "beta.jl"]
         end
     end
@@ -93,8 +93,8 @@ end
             err
         end
 
-        @test jobs isa Vector{TestJob}
-        if jobs isa Vector{TestJob}
+        @test jobs isa Vector{WarmTestRunner.TestJob}
+        if jobs isa Vector{WarmTestRunner.TestJob}
             @test sort([job.name for job in jobs]) == ["alpha.jl", "gamma.jl"]
         end
     end
@@ -109,8 +109,8 @@ end
             err
         end
 
-        @test jobs isa Vector{TestJob}
-        if jobs isa Vector{TestJob}
+        @test jobs isa Vector{WarmTestRunner.TestJob}
+        if jobs isa Vector{WarmTestRunner.TestJob}
             @test isempty(jobs)
         end
     end
