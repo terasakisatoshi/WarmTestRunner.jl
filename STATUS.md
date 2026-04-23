@@ -1,6 +1,6 @@
 # WarmTestRunner.jl Status
 
-Updated: 2026-04-22
+Updated: 2026-04-23
 
 This file summarizes how much of `SPEC.md` is implemented in the current repository and
 what remains deferred.
@@ -32,7 +32,7 @@ Practical summary:
 Implemented:
 
 - `serve(; pkgroot, jobs, threads_per_worker, use_testenv, preload_package, startup_file, ...)`
-- `run(; tests = String[], quickfail = false, changed_only = false, kwargs...)`
+- `run(; tests = String[], quickfail = false, changed_only = false, rerun_failed = false, kwargs...)`
 - `status(; pkgroot = pwd())`
 - `stop(; pkgroot = pwd())`
 
@@ -45,6 +45,12 @@ Current behavior:
   heuristic, including the `src/` fallback to the full discovered set.
 - `run(...; changed_only = true)` also falls back to the full discovered set when Git
   change detection is unavailable or the package is not in a usable Git repo.
+- `run(...; rerun_failed = true)` reruns only the previously failing files recorded for
+  the daemon session or package root.
+- `run(...; rerun_failed = true, tests = [...])` filters the explicit test list down to
+  the previously failing files while preserving the explicit order.
+- `run(...; rerun_failed = true)` returns an empty `RunSummary` when there is no recorded
+  failing-file history.
 - `status()` reports daemon state and current active-job count.
 - `stop()` sends a stop request and returns after the controller acknowledges it.
 
@@ -70,6 +76,7 @@ Implemented:
 - Worker crash detection and replacement
 - Ordered result aggregation
 - `quickfail` with skipped-result preservation
+- `rerun_failed` selection using persisted failing-file state
 - Stale registry detection and replacement
 - Active-run `status()` responsiveness
 - Active-run `stop()` responsiveness
@@ -103,6 +110,7 @@ The current test suite covers:
 - public API smoke checks
 - test discovery and tag parsing
 - changed-only selection coverage
+- rerun-failed selection coverage
 - sandbox classification of pass/fail/error
 - single-worker bootstrap and execution
 - `threads_per_worker`
@@ -123,14 +131,13 @@ julia --project=. --startup-file=no -e 'include("test/runtests.jl")'
 
 Latest result:
 
-- full suite passed on 2026-04-22
+- full suite passed on 2026-04-23
 
 ## Deferred From The Full Spec
 
 Not implemented yet:
 
 - `watch()`
-- `rerun_failed`
 - `fresh`
 - `retry_crashed` as a public option
 - `verbose`
