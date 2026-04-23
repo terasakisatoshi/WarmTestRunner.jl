@@ -27,6 +27,8 @@ Practical summary:
 - `use_revise = true` loads `Revise.jl` during worker bootstrap.
 - When Git change detection is unavailable or the package is not in a usable Git repo, changed-only selection falls back to the full discovered test set.
 - Several "full spec" features are still intentionally deferred.
+- The next highest-leverage public API gap is richer test filtering beyond explicit
+  `tests`.
 
 ## What Is Implemented
 
@@ -195,7 +197,13 @@ If measured against the current MVP plan rather than the full spec, the reposito
 
 Most sensible next steps:
 
-1. decide whether the next milestone is the thin CLI wrapper
-2. implement one deferred feature set at a time behind tests
-3. document the current public contract more explicitly, especially `stop()` semantics
-4. keep using `Pkg.test()` separately as the final clean-room verification path
+1. finish richer filtering in the public `run` API:
+   - path or filename substring filtering
+   - tag include/exclude filtering using existing `# warmtest: tags=...` metadata
+   - daemon protocol compatibility and README coverage
+2. add the thin CLI wrapper after filtering so `--filter`, `--include-tag`, and
+   `--exclude-tag` can be designed once around the final API
+3. implement `verbose` output for better failure/debug feedback
+4. consider `seed` support and duration-aware scheduling after the user-facing selection
+   surface is stable
+5. keep using `Pkg.test()` separately as the final clean-room verification path

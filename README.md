@@ -88,6 +88,7 @@ julia --project=. -e 'using WarmTestRunner; WarmTestRunner.stop()'
 ```
 
 既存のデーモンがある場合、`serve()` と `run()` はそれを再利用します。
+専用の CLI wrapper はまだ未実装です。
 
 ## 一部のテストだけ実行する
 
@@ -103,6 +104,9 @@ WarmTestRunner.run(tests = ["unit/foo.jl", "unit/bar.jl"])
 ```julia
 WarmTestRunner.run(tests = ["/path/to/MyPkg/test/foo.jl"])
 ```
+
+現在の公開 API では、ファイル名の部分一致、正規表現、タグ include/exclude による絞り込みはまだ未実装です。
+その用途では、今は `tests = [...]`、`changed_only = true`、`rerun_failed = true` を使って対象を絞ってください。
 
 ## 失敗したらすぐ止める
 
