@@ -17,6 +17,10 @@ function write_temp_test(dir::AbstractString, name::AbstractString, body::Abstra
     return path
 end
 
+function status_identity(status)
+    return (status.server_id, status.pid, status.jobs)
+end
+
 function wait_for_server_record(pkgroot::AbstractString; timeout_s::Real = 10.0)
     deadline = time() + timeout_s
     while time() < deadline
@@ -255,6 +259,61 @@ end
                 WarmTestRunner.wait_for_record_gone(FIXTURE_ROOT)
                 @test WarmTestRunner.load_server_record(FIXTURE_ROOT) === nothing
                 @test WarmTestRunner.status().state == :stopped
+            end
+        end
+    end
+end
+
+@testset "public run fresh=true refreshes workers without replacing the daemon" begin
+    mktempdir() do tmp
+        withenv("WARMTESTRUNNER_HOME" => tmp) do
+            cd(FIXTURE_ROOT) do
+                WarmTestRunner.serve(jobs = 1)
+                try
+                    before = WarmTestRunner.status()
+                    first = WarmTestRunner.run(tests = ["pass.jl"])
+                    refreshed = WarmTestRunner.run(tests = ["pass.jl"], fresh = true)
+                    after = WarmTestRunner.status()
+                    followup = WarmTestRunner.run(tests = ["pass.jl"])
+
+                    @test first.passed == 1
+                    @test refreshed.passed == 1
+                    @test followup.passed == 1
+                    @test status_identity(after) == status_identity(before)
+                    @test after.state == :idle
+                finally
+                    WarmTestRunner.stop()
+                end
+            end
+        end
+    end
+end
+
+@testset "fresh restarts when live registry record is from an older protocol" begin
+    mktempdir() do tmp
+        withenv("WARMTESTRUNNER_HOME" => tmp) do
+            cd(FIXTURE_ROOT) do
+                initial_handle = WarmTestRunner.serve(jobs = 1)
+
+                record_path = WarmTestRunner.server_record_path(FIXTURE_ROOT)
+                record_data = TOML.parsefile(record_path)
+                record_data["protocol_version"] = 3
+                open(record_path, "w") do io
+                    TOML.print(io, record_data)
+                end
+
+                try
+                    summary = WarmTestRunner.run(tests = ["pass.jl"], fresh = true)
+                    current = WarmTestRunner.status()
+
+                    @test summary.passed == 1
+                    @test current.server_id != initial_handle.server_id
+                finally
+                    try
+                        WarmTestRunner.stop()
+                    catch
+                    end
+                end
             end
         end
     end
