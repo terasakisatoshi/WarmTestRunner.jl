@@ -50,6 +50,7 @@ julia --project=. --startup-file=no examples/smoke_test.jl
 ```
 
 この例は一時パッケージにローカル checkout を `Pkg.develop` し、`serve()`、`run()`、`RunSummary` の件数確認、`stop()` までを実行します。実行後、一時パッケージとデーモン用ディレクトリは削除されます。
+初回実行時は依存パッケージの解決や manifest 更新が走るため、通常より時間がかかり、`Pkg` の更新ログが多めに表示されることがあります。
 
 ## 基本的な使い方
 
@@ -95,6 +96,12 @@ json = WarmTestRunner.run(output_format = :json)
 ```
 
 JSON には集計件数、合計実行時間、ファイルごとの `path`, `status`, `stdout`, `stderr`, `exception_summary`, `stacktrace`, `worker_id` が含まれます。
+
+コマンドラインから一部のテストだけを JSON で取得する例です。
+
+```bash
+julia --project=. -e 'using WarmTestRunner; WarmTestRunner.serve(jobs = 1); try; println(WarmTestRunner.run(tests = ["foo.jl"], output_format = :json)); finally; WarmTestRunner.stop(); end'
+```
 
 ## コマンドラインから使う
 
@@ -283,3 +290,5 @@ julia --project=. --startup-file=no -e 'using Pkg; Pkg.test()'
 ```bash
 julia --project=. --startup-file=no -e 'include("test/runtests.jl")'
 ```
+
+このテストスイートには daemon、worker、watch、crash recovery の統合テストが含まれるため、環境によっては 1 分以上かかることがあります。
