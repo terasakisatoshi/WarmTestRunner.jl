@@ -17,6 +17,10 @@ function write_temp_test(dir::AbstractString, name::AbstractString, body::Abstra
     return path
 end
 
+function status_identity(status)
+    return (status.server_id, status.pid, status.jobs)
+end
+
 function wait_for_server_record(pkgroot::AbstractString; timeout_s::Real = 10.0)
     deadline = time() + timeout_s
     while time() < deadline
@@ -60,6 +64,45 @@ function init_changed_only_public_fixture()
     Base.run(`git -C $pkgroot add .`)
     Base.run(`git -C $pkgroot commit -m initial`)
     return pkgroot
+end
+
+function init_bootstrap_counter_fixture(tmp::AbstractString)
+    pkgroot = joinpath(tmp, "BootstrapCounterFixture")
+    mkpath(joinpath(pkgroot, "src"))
+    mkpath(joinpath(pkgroot, "test"))
+
+    counter_path = joinpath(pkgroot, "bootstrap-counter.txt")
+    counter_literal = repr(counter_path)
+
+    write(
+        joinpath(pkgroot, "Project.toml"),
+        """
+        name = "BootstrapCounterFixture"
+        uuid = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
+        version = "0.1.0"
+        """,
+    )
+    write(joinpath(pkgroot, "src", "BootstrapCounterFixture.jl"), "module BootstrapCounterFixture\nend\n")
+    write(
+        joinpath(pkgroot, "test", "warmtest_bootstrap.jl"),
+        """
+        counter_path = $counter_literal
+        count = isfile(counter_path) ? parse(Int, strip(read(counter_path, String))) : 0
+        open(counter_path, "w") do io
+            write(io, string(count + 1))
+        end
+        """,
+    )
+    write(
+        joinpath(pkgroot, "test", "bootstrap_counter.jl"),
+        """
+        using Test
+        counter_path = $counter_literal
+        counter = parse(Int, strip(read(counter_path, String)))
+        @test counter >= 1
+        """,
+    )
+    return pkgroot, counter_path
 end
 
 @testset "inline scheduler runs pass and fail files" begin
@@ -255,6 +298,110 @@ end
                 WarmTestRunner.wait_for_record_gone(FIXTURE_ROOT)
                 @test WarmTestRunner.load_server_record(FIXTURE_ROOT) === nothing
                 @test WarmTestRunner.status().state == :stopped
+            end
+        end
+    end
+end
+
+@testset "malformed registry records are treated as absent" begin
+    mktempdir() do tmp
+        withenv("WARMTESTRUNNER_HOME" => tmp) do
+            cd(FIXTURE_ROOT) do
+                record_path = WarmTestRunner.server_record_path(FIXTURE_ROOT)
+                mkpath(dirname(record_path))
+                open(record_path, "w") do io
+                    TOML.print(io, Dict(
+                        "protocol_version" => 4,
+                        "server_id" => "partial-record",
+                        "pid" => getpid(),
+                        "pkgroot" => FIXTURE_ROOT,
+                    ))
+                end
+
+                @test WarmTestRunner.status(pkgroot = FIXTURE_ROOT).state == :stopped
+
+                handle = WarmTestRunner.serve(jobs = 1)
+                try
+                    current = WarmTestRunner.status()
+                    @test current.state == :idle
+                    @test current.pid == handle.pid
+                    @test current.server_id == handle.server_id
+                finally
+                    WarmTestRunner.stop()
+                    WarmTestRunner.wait_for_record_gone(FIXTURE_ROOT)
+                end
+            end
+        end
+    end
+end
+
+@testset "public run fresh=true refreshes workers without replacing the daemon" begin
+    mktempdir() do tmp
+        pkgroot, counter_path = init_bootstrap_counter_fixture(tmp)
+        withenv("WARMTESTRUNNER_HOME" => tmp) do
+            cd(pkgroot) do
+                WarmTestRunner.serve(jobs = 1)
+                stop_err = nothing
+                try
+                    before = WarmTestRunner.status()
+                    first = WarmTestRunner.run(tests = ["bootstrap_counter.jl"])
+                    counter_before = parse(Int, strip(read(counter_path, String)))
+                    refreshed = WarmTestRunner.run(tests = ["bootstrap_counter.jl"], fresh = true)
+                    counter_after = parse(Int, strip(read(counter_path, String)))
+                    after = WarmTestRunner.status()
+                    followup = WarmTestRunner.run(tests = ["bootstrap_counter.jl"])
+
+                    @test first.passed == 1
+                    @test refreshed.passed == 1
+                    @test followup.passed == 1
+                    @test counter_after > counter_before
+                    @test counter_after == counter_before + 1
+                    @test status_identity(after) == status_identity(before)
+                    @test after.state == :idle
+                finally
+                    try
+                        WarmTestRunner.stop()
+                    catch err
+                        stop_err = err
+                    end
+                    WarmTestRunner.wait_for_record_gone(pkgroot)
+                    stop_err === nothing || rethrow(stop_err)
+                end
+            end
+        end
+    end
+end
+
+@testset "fresh restarts when live registry record is from an older protocol" begin
+    mktempdir() do tmp
+        withenv("WARMTESTRUNNER_HOME" => tmp) do
+            cd(FIXTURE_ROOT) do
+                initial_handle = WarmTestRunner.serve(jobs = 1)
+
+                record_path = WarmTestRunner.server_record_path(FIXTURE_ROOT)
+                record_data = TOML.parsefile(record_path)
+                record_data["protocol_version"] = 0
+                open(record_path, "w") do io
+                    TOML.print(io, record_data)
+                end
+
+                stop_err = nothing
+                try
+                    summary = WarmTestRunner.run(tests = ["pass.jl"], fresh = true)
+                    current = WarmTestRunner.status()
+
+                    @test summary.passed == 1
+                    @test current.server_id != initial_handle.server_id
+                    @test current.pid != initial_handle.pid
+                finally
+                    try
+                        WarmTestRunner.stop()
+                    catch err
+                        stop_err = err
+                    end
+                    WarmTestRunner.wait_for_record_gone(FIXTURE_ROOT)
+                    stop_err === nothing || rethrow(stop_err)
+                end
             end
         end
     end

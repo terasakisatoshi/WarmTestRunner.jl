@@ -90,6 +90,29 @@ function recreate_worker!(state::ControllerState, index::Int)
     end
 end
 
+function refresh_worker_pool!(state::ControllerState)
+    new_workers = start_worker_pool(state.cfg)
+    old_workers = lock(state.lock) do
+        old_workers = state.workers
+        state.workers = new_workers
+        return old_workers
+    end
+
+    try
+        stop_worker_pool!(old_workers)
+        return new_workers
+    catch
+        try
+            stop_worker_pool!(new_workers)
+        catch
+        end
+        lock(state.lock) do
+            state.workers = old_workers
+        end
+        rethrow()
+    end
+end
+
 function schedule_jobs!(
     workers::AbstractVector{<:WorkerHandle},
     jobs::AbstractVector{<:TestJob},
@@ -429,6 +452,7 @@ function handle_request!(state::ControllerState, request)
         persist_status!(state)
 
         jobs = try
+            request_payload(request, :fresh, false) && refresh_worker_pool!(state)
             previous_failed = lock(state.lock) do
                 copy(state.status.last_failed)
             end
@@ -457,7 +481,7 @@ function handle_request!(state::ControllerState, request)
         quickfail = request_payload(request, :quickfail, false)
         return run_jobs_on_pool!(state, jobs; quickfail = quickfail)
     elseif cmd == :stop
-        should_interrupt = lock(state.lock) do
+        should_interrupt, workers_to_stop = lock(state.lock) do
             state.stop_requested = true
             state.status = controller_status(
                 state.handle,
@@ -467,10 +491,10 @@ function handle_request!(state::ControllerState, request)
                 last_failed = state.status.last_failed,
                 last_success_at = state.status.last_success_at,
             )
-            return state.run_active
+            return (state.run_active, state.workers)
         end
         persist_status!(state)
-        should_interrupt && stop_worker_pool!(state.workers)
+        should_interrupt && stop_worker_pool!(workers_to_stop)
         return :ok
     else
         throw(ArgumentError("unknown controller request: $(cmd)"))

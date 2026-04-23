@@ -84,6 +84,55 @@ end
     end
 end
 
+@testset "refresh_worker_pool! preserves the old pool on bootstrap failure" begin
+    mktempdir() do tmp
+        bad_root = joinpath(tmp, "BadRefreshFixture")
+        mkpath(joinpath(bad_root, "test"))
+        open(joinpath(bad_root, "Project.toml"), "w") do io
+            write(io, """
+            name = "BadRefreshFixture"
+            uuid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+            version = "0.1.0"
+            """)
+        end
+        open(joinpath(bad_root, "test", "warmtest_bootstrap.jl"), "w") do io
+            write(io, "error(\"refresh bootstrap failed\")\n")
+        end
+
+        good_cfg = WarmTestRunner.make_config(pkgroot = FIXTURE_ROOT, jobs = 1)
+        workers = WarmTestRunner.start_worker_pool(good_cfg)
+        bad_cfg = WarmTestRunner.make_config(pkgroot = bad_root, jobs = 1)
+        state = WarmTestRunner.ControllerState(
+            cfg = bad_cfg,
+            handle = WarmTestRunner.ServerHandle(
+                pkgroot = bad_root,
+                server_id = "test-server",
+                pid = getpid(),
+                started_at = time(),
+                jobs = 1,
+            ),
+            status = WarmTestRunner.ServerStatus(pkgroot = bad_root),
+            workers = workers,
+        )
+
+        @test isdefined(WarmTestRunner, :refresh_worker_pool!)
+        try
+            err = nothing
+            try
+                WarmTestRunner.refresh_worker_pool!(state)
+                @test false
+            catch caught
+                err = caught
+            end
+            @test err !== nothing
+            @test state.workers === workers
+            @test all(worker.state == :idle for worker in workers)
+        finally
+            WarmTestRunner.stop_worker_pool!(workers)
+        end
+    end
+end
+
 @testset "inline scheduler quickfail preserves skipped ordering" begin
     cfg = WarmTestRunner.make_config(pkgroot = FIXTURE_ROOT, jobs = 1)
     jobs = [
