@@ -24,6 +24,11 @@ using WarmTestRunner
         tests = ["pass.jl"],
         changed_only = true,
     )
+    @test_throws ArgumentError WarmTestRunner.run(
+        pkgroot = joinpath(@__DIR__, "packages", "FixturePkg"),
+        rerun_failed = true,
+        changed_only = true,
+    )
 
     summary = WarmTestRunner.RunSummary(
         results = WarmTestRunner.TestResult[],

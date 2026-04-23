@@ -8,6 +8,6 @@ function summarize_results(results::AbstractVector{<:TestResult})
         errored = count(==(:errored), statuses),
         crashed = count(==(:crashed), statuses),
         skipped = count(==(:skipped), statuses),
-        elapsed_total = sum(getfield.(collected, :elapsed)),
+        elapsed_total = sum(result.elapsed for result in collected; init = 0.0),
     )
 end

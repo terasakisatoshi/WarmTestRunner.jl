@@ -260,6 +260,44 @@ end
     end
 end
 
+@testset "public run reruns only previous failing files" begin
+    mktempdir() do tmp
+        withenv("WARMTESTRUNNER_HOME" => tmp) do
+            cd(FIXTURE_ROOT) do
+                WarmTestRunner.serve(jobs = 1)
+                try
+                    empty_before = WarmTestRunner.run(rerun_failed = true)
+                    @test isempty(empty_before.results)
+
+                    first = WarmTestRunner.run(tests = ["fail.jl", "pass.jl"])
+                    @test [basename(result.path) for result in first.results] == ["fail.jl", "pass.jl"]
+                    @test getfield.(first.results, :status) == [:failed, :passed]
+
+                    status_after_first = WarmTestRunner.status()
+                    @test basename.(status_after_first.last_failed) == ["fail.jl"]
+
+                    rerun = WarmTestRunner.run(rerun_failed = true)
+                    @test [basename(result.path) for result in rerun.results] == ["fail.jl"]
+                    @test getfield.(rerun.results, :status) == [:failed]
+
+                    filtered = WarmTestRunner.run(tests = ["pass.jl", "fail.jl"], rerun_failed = true)
+                    @test [basename(result.path) for result in filtered.results] == ["fail.jl"]
+                    @test getfield.(filtered.results, :status) == [:failed]
+
+                    cleared = WarmTestRunner.run(tests = ["pass.jl"])
+                    @test getfield.(cleared.results, :status) == [:passed]
+                    @test isempty(WarmTestRunner.status().last_failed)
+
+                    empty_after = WarmTestRunner.run(rerun_failed = true)
+                    @test isempty(empty_after.results)
+                finally
+                    WarmTestRunner.stop()
+                end
+            end
+        end
+    end
+end
+
 @testset "serve replaces stale registry records" begin
     mktempdir() do tmp
         withenv("WARMTESTRUNNER_HOME" => tmp) do

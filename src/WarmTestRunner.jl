@@ -39,19 +39,29 @@ function serve(; kwargs...)
     return launch_controller(cfg)
 end
 
-function ensure_changed_only_controller!(pkgroot::AbstractString)
+function ensure_protocol_controller!(pkgroot::AbstractString, minimum_protocol_version::Int)
     record = live_record_or_nothing(pkgroot)
     record === nothing && return nothing
-    record.protocol_version >= CHANGED_ONLY_PROTOCOL_VERSION && return nothing
+    record.protocol_version >= minimum_protocol_version && return nothing
     stop(pkgroot = pkgroot)
     wait_for_record_gone(pkgroot)
     return nothing
 end
 
-function run(; tests = String[], quickfail::Bool = false, changed_only::Bool = false, kwargs...)
+function ensure_changed_only_controller!(pkgroot::AbstractString)
+    return ensure_protocol_controller!(pkgroot, CHANGED_ONLY_PROTOCOL_VERSION)
+end
+
+function ensure_rerun_failed_controller!(pkgroot::AbstractString)
+    return ensure_protocol_controller!(pkgroot, RERUN_FAILED_PROTOCOL_VERSION)
+end
+
+function run(; tests = String[], quickfail::Bool = false, changed_only::Bool = false, rerun_failed::Bool = false, kwargs...)
     !isempty(tests) && changed_only && throw(ArgumentError("changed_only cannot be combined with explicit tests"))
+    changed_only && rerun_failed && throw(ArgumentError("changed_only cannot be combined with rerun_failed"))
     cfg = make_config(; kwargs...)
     changed_only && ensure_changed_only_controller!(cfg.pkgroot)
+    rerun_failed && ensure_rerun_failed_controller!(cfg.pkgroot)
     serve(; kwargs...)
     return client_request(
         cfg.pkgroot,
@@ -60,6 +70,7 @@ function run(; tests = String[], quickfail::Bool = false, changed_only::Bool = f
             tests = String.(tests),
             quickfail = quickfail,
             changed_only = changed_only,
+            rerun_failed = rerun_failed,
         ),
     )
 end

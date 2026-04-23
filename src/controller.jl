@@ -17,18 +17,32 @@ function build_jobs(
     cfg::RunnerConfig;
     tests::AbstractVector{<:AbstractString} = String[],
     changed_only::Bool = false,
+    rerun_failed::Bool = false,
+    last_failed::AbstractVector{<:AbstractString} = String[],
 )
     !isempty(tests) && changed_only && throw(ArgumentError("changed_only cannot be combined with explicit tests"))
-    changed_only && return discover_changed_tests(cfg.pkgroot)
-    isempty(tests) && return discover_tests(cfg.pkgroot)
+    changed_only && rerun_failed && throw(ArgumentError("changed_only cannot be combined with rerun_failed"))
 
-    return [
+    explicit_jobs = [
         TestJob(
             path = isabspath(name) ? name : joinpath(cfg.pkgroot, "test", name),
             name = basename(name),
         )
         for name in tests
     ]
+
+    if rerun_failed
+        isempty(last_failed) && return TestJob[]
+        if isempty(tests)
+            return [TestJob(path = path, name = basename(path)) for path in last_failed]
+        end
+        failed_paths = Set(abspath.(last_failed))
+        return [job for job in explicit_jobs if abspath(job.path) in failed_paths]
+    end
+
+    changed_only && return discover_changed_tests(cfg.pkgroot)
+    isempty(tests) && return discover_tests(cfg.pkgroot)
+    return explicit_jobs
 end
 
 function start_worker_pool(cfg::RunnerConfig)
@@ -232,7 +246,12 @@ end
 
 request_command(request) = request isa NamedTuple ? getproperty(request, :cmd) : request[:cmd]
 
-request_payload(request, key::Symbol, default) = request isa NamedTuple ? get(request, key, default) : get(request, key, default)
+function request_payload(request, key::Symbol, default)
+    if request isa NamedTuple
+        return hasproperty(request, key) ? getproperty(request, key) : default
+    end
+    return get(request, key, default)
+end
 
 function controller_log_paths()
     warm_home = get(ENV, "WARMTESTRUNNER_HOME", joinpath(homedir(), ".julia", "warmtestrunner"))
@@ -410,10 +429,15 @@ function handle_request!(state::ControllerState, request)
         persist_status!(state)
 
         jobs = try
+            previous_failed = lock(state.lock) do
+                copy(state.status.last_failed)
+            end
             build_jobs(
                 state.cfg;
                 tests = request_payload(request, :tests, String[]),
                 changed_only = request_payload(request, :changed_only, false),
+                rerun_failed = request_payload(request, :rerun_failed, false),
+                last_failed = previous_failed,
             )
         catch
             lock(state.lock) do
