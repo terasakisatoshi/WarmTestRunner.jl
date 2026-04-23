@@ -60,13 +60,18 @@ function ensure_fresh_controller!(pkgroot::AbstractString)
     return ensure_protocol_controller!(pkgroot, FRESH_RUN_PROTOCOL_VERSION)
 end
 
-function run(; tests = String[], quickfail::Bool = false, changed_only::Bool = false, rerun_failed::Bool = false, fresh::Bool = false, kwargs...)
+function ensure_retry_crashed_controller!(pkgroot::AbstractString)
+    return ensure_protocol_controller!(pkgroot, RETRY_CRASHED_PROTOCOL_VERSION)
+end
+
+function run(; tests = String[], quickfail::Bool = false, changed_only::Bool = false, rerun_failed::Bool = false, fresh::Bool = false, retry_crashed::Bool = true, kwargs...)
     !isempty(tests) && changed_only && throw(ArgumentError("changed_only cannot be combined with explicit tests"))
     changed_only && rerun_failed && throw(ArgumentError("changed_only cannot be combined with rerun_failed"))
     cfg = make_config(; kwargs...)
     changed_only && ensure_changed_only_controller!(cfg.pkgroot)
     rerun_failed && ensure_rerun_failed_controller!(cfg.pkgroot)
     fresh && ensure_fresh_controller!(cfg.pkgroot)
+    !retry_crashed && ensure_retry_crashed_controller!(cfg.pkgroot)
     serve(; kwargs...)
     return client_request(
         cfg.pkgroot,
@@ -77,6 +82,7 @@ function run(; tests = String[], quickfail::Bool = false, changed_only::Bool = f
             changed_only = changed_only,
             rerun_failed = rerun_failed,
             fresh = fresh,
+            retry_crashed = retry_crashed,
         ),
     )
 end

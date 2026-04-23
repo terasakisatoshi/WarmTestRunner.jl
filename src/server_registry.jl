@@ -1,10 +1,11 @@
 using UUIDs
 
 const REGISTRY_NAMESPACE = UUID("e9f6f42a-70d3-49ec-bdbd-e7d5bf5a3ca9")
-const SERVER_PROTOCOL_VERSION = 4
+const SERVER_PROTOCOL_VERSION = 5
 const CHANGED_ONLY_PROTOCOL_VERSION = 2
 const RERUN_FAILED_PROTOCOL_VERSION = 3
 const FRESH_RUN_PROTOCOL_VERSION = 4
+const RETRY_CRASHED_PROTOCOL_VERSION = 5
 
 registry_root() = joinpath(get(ENV, "WARMTESTRUNNER_HOME", joinpath(homedir(), ".julia", "warmtestrunner")), "servers")
 
