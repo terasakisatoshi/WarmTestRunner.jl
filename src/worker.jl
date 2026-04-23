@@ -39,6 +39,24 @@ function activation_expr(cfg::RunnerConfig)
     end
 end
 
+function revise_expr(cfg::RunnerConfig)
+    cfg.use_revise || return quote
+        Core.eval(Main, :(WARMTEST_REVISE_LOADED = false))
+    end
+
+    return quote
+        tool_project = $(cfg.tool_project)
+        added_tool_project = !(tool_project in LOAD_PATH)
+        added_tool_project && pushfirst!(LOAD_PATH, tool_project)
+        try
+            Base.eval(Main, :(using Revise))
+        finally
+            added_tool_project && filter!(path -> path != tool_project, LOAD_PATH)
+        end
+        Core.eval(Main, :(WARMTEST_REVISE_LOADED = true))
+    end
+end
+
 function start_worker(cfg::RunnerConfig; id::Int)
     exeflags = String["--project=$(cfg.tool_project)"]
     push!(exeflags, "--threads=$(cfg.threads_per_worker)")
@@ -58,6 +76,7 @@ function bootstrap_worker!(worker::WorkerHandle, cfg::RunnerConfig)
     expr = quote
         cd($(cfg.pkgroot))
         $(activation_expr(cfg))
+        $(revise_expr(cfg))
         if $(cfg.preload_package) && $(using_expr !== nothing)
             Base.eval(Main, $using_expr)
         end

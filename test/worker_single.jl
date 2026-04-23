@@ -72,6 +72,66 @@ end
     end
 end
 
+@testset "single malt worker loads Revise when requested" begin
+    cfg = WarmTestRunner.make_config(pkgroot = FIXTURE_ROOT, jobs = 1, use_revise = true)
+    worker = WarmTestRunner.start_worker(cfg; id = 5)
+
+    try
+        WarmTestRunner.bootstrap_worker!(worker, cfg)
+        @test worker.state == :idle
+        @test Malt.remote_eval_fetch(worker.proc, :(isdefined(Main, :Revise))) === true
+        @test Malt.remote_eval_fetch(worker.proc, :(Main.WARMTEST_REVISE_LOADED)) === true
+        @test Malt.remote_eval_fetch(worker.proc, :(Main.WARMTEST_ACTIVATION_STRATEGY)) == :pkg_activate_fallback
+    finally
+        WarmTestRunner.stop_worker!(worker)
+        @test worker.state == :stopped
+    end
+end
+
+@testset "Revise loads before package preload and bootstrap hook" begin
+    mktempdir() do tmp
+        pkgroot = joinpath(tmp, "ReviseOrderFixture")
+        mkpath(joinpath(pkgroot, "src"))
+        mkpath(joinpath(pkgroot, "test"))
+
+        write(
+            joinpath(pkgroot, "Project.toml"),
+            """
+            name = "ReviseOrderFixture"
+            uuid = "22222222-3333-4444-5555-666666666666"
+            version = "0.1.0"
+            """,
+        )
+        write(
+            joinpath(pkgroot, "src", "ReviseOrderFixture.jl"),
+            """
+            __precompile__(false)
+            module ReviseOrderFixture
+            const REVISE_WAS_LOADED_DURING_PRELOAD = isdefined(Main, :Revise)
+            end
+            """,
+        )
+        write(
+            joinpath(pkgroot, "test", "warmtest_bootstrap.jl"),
+            """
+            Core.eval(Main, :(WARMTEST_BOOTSTRAP_SAW_REVISE = isdefined(Main, :Revise)))
+            Core.eval(Main, :(WARMTEST_PRELOAD_SAW_REVISE = ReviseOrderFixture.REVISE_WAS_LOADED_DURING_PRELOAD))
+            """,
+        )
+
+        cfg = WarmTestRunner.make_config(pkgroot = pkgroot, jobs = 1, use_revise = true, use_testenv = false)
+        worker = WarmTestRunner.start_worker(cfg; id = 6)
+
+        try
+            WarmTestRunner.bootstrap_worker!(worker, cfg)
+            @test Malt.remote_eval_fetch(worker.proc, :(Main.WARMTEST_PRELOAD_SAW_REVISE)) === true
+            @test Malt.remote_eval_fetch(worker.proc, :(Main.WARMTEST_BOOTSTRAP_SAW_REVISE)) === true
+        finally
+            WarmTestRunner.stop_worker!(worker)
+        end
+    end
+end
+
 @testset "single malt worker reports crashed transport after stop" begin
     cfg = WarmTestRunner.make_config(pkgroot = FIXTURE_ROOT, jobs = 1)
     worker = WarmTestRunner.start_worker(cfg; id = 3)

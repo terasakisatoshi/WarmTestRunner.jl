@@ -16,7 +16,7 @@ using WarmTestRunner
     @test WarmTestRunner.make_config(; jobs = 3, threads_per_worker = 2).jobs == 3
     @test_throws ArgumentError WarmTestRunner.make_config(; jobs = 0)
     @test_throws ArgumentError WarmTestRunner.make_config(; threads_per_worker = 0)
-    @test_throws ArgumentError WarmTestRunner.make_config(; use_revise = true)
+    @test WarmTestRunner.make_config(; use_revise = true).use_revise === true
     @test_throws ArgumentError WarmTestRunner.make_config(; color = false)
     @test_throws ArgumentError WarmTestRunner.make_config(; worker_timeout = 1.0)
     @test_throws ArgumentError WarmTestRunner.make_config(; log_level = :debug)

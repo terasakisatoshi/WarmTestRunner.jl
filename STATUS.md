@@ -24,6 +24,7 @@ Practical summary:
 - `changed_only` is implemented as a runtime selection flag.
 - `watch()` is implemented for debounced source/test path monitoring.
 - `output_format = :json` is implemented for machine-readable run results.
+- `use_revise = true` loads `Revise.jl` during worker bootstrap.
 - When Git change detection is unavailable or the package is not in a usable Git repo, changed-only selection falls back to the full discovered test set.
 - Several "full spec" features are still intentionally deferred.
 
@@ -65,11 +66,15 @@ Current behavior:
 - `stop()` sends a stop request and returns after the controller acknowledges it.
 - `watch()` monitors existing source/test paths, debounces filesystem events, and reruns
   through the existing warm runner.
+- `serve(...; use_revise = true)` loads `Revise.jl` in each worker after environment
+  activation and before package preload and `test/warmtest_bootstrap.jl`.
 
 Important note:
 
 - `stop()` does not wait for registry-file disappearance before returning. Shutdown
   completion is asynchronous after the stop ACK.
+- Revise state is per worker, and macro expansion, generated functions, and constant
+  redefinition may still need `run(fresh = true)`.
 
 ### Core Runtime
 
@@ -79,6 +84,7 @@ Implemented:
 - Registry files under `WARMTESTRUNNER_HOME` / default warmtestrunner home
 - Persistent warm worker pool using `Malt.Worker`
 - Worker bootstrap with package/test environment activation
+- Optional `Revise.jl` loading during worker bootstrap when `use_revise = true`
 - Optional bootstrap hook via `test/warmtest_bootstrap.jl`
 - Per-test-file execution in a fresh module
 - File discovery under `test/`
@@ -105,12 +111,12 @@ Implemented and active:
 - `jobs`
 - `threads_per_worker`
 - `use_testenv`
+- `use_revise`
 - `preload_package`
 - `startup_file`
 
 Accepted but intentionally restricted:
 
-- `use_revise = true` is rejected
 - `color = false` is rejected
 - `worker_timeout != 60.0` is rejected
 - `log_level != :info` is rejected
@@ -137,6 +143,7 @@ The current test suite covers:
 - public `retry_crashed` crash-recovery control
 - stale registry replacement
 - daemon request error handling
+- optional `Revise.jl` worker bootstrap loading
 - active-run `status()`
 - active-run `stop()`
 - public `watch()`
@@ -158,7 +165,7 @@ Not implemented yet:
 
 - `verbose`
 - `seed`
-- `Revise.jl` integration
+- broader Revise correctness guarantees beyond loading Revise during bootstrap
 - full CLI wrapper layer beyond `julia -e 'using WarmTestRunner; ...'`
 - richer filtering modes beyond explicit `tests`
 - complete `Pkg.test()`-style compatibility
