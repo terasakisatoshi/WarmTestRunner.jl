@@ -21,16 +21,35 @@
 
 このパッケージをテスト対象プロジェクトの環境で使えるようにします。未登録パッケージとしてローカル checkout を使う場合は、テスト対象プロジェクトで次のように追加します。
 
+```bash
+julia --project=. -e 'using Pkg; Pkg.develop(path = "/path/to/WarmTestRunner.jl")'
+```
+
+Julia REPL から実行する場合は、先にテスト対象プロジェクトを activate してから `develop` してください。
+
 ```julia
 using Pkg
+Pkg.activate(".")
 Pkg.develop(path = "/path/to/WarmTestRunner.jl")
 ```
+
+ローカル checkout を指定する場合でも、初回は `WarmTestRunner.jl` の依存パッケージを解決するために通常の Julia registry や package server へのアクセスが必要になることがあります。
 
 このリポジトリ自体で開発する場合は、依存関係を先に instantiate してください。
 
 ```bash
 julia --project=. -e 'using Pkg; Pkg.instantiate()'
 ```
+
+## smoke test の例
+
+このリポジトリには、最小のテスト対象パッケージを一時ディレクトリに作って `WarmTestRunner.jl` の基本動作を確認する smoke test 例があります。
+
+```bash
+julia --project=. --startup-file=no examples/smoke_test.jl
+```
+
+この例は一時パッケージにローカル checkout を `Pkg.develop` し、`serve()`、`run()`、`RunSummary` の件数確認、`stop()` までを実行します。実行後、一時パッケージとデーモン用ディレクトリは削除されます。
 
 ## 基本的な使い方
 
