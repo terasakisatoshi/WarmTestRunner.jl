@@ -115,6 +115,7 @@ end
             workers = workers,
         )
 
+        @test isdefined(WarmTestRunner, :refresh_worker_pool!)
         try
             err = nothing
             try
