@@ -69,6 +69,14 @@ summary.results
 
 各テストファイルの結果は `summary.results` に入り、`status`, `stdout`, `stderr`, `exception_summary`, `stacktrace`, `elapsed` などを確認できます。
 
+機械処理しやすい JSON 文字列が必要な場合は `output_format = :json` を指定します。
+
+```julia
+json = WarmTestRunner.run(output_format = :json)
+```
+
+JSON には集計件数、合計実行時間、ファイルごとの `path`, `status`, `stdout`, `stderr`, `exception_summary`, `stacktrace`, `worker_id` が含まれます。
+
 ## コマンドラインから使う
 
 Julia の `-e` オプションだけでも使えます。
