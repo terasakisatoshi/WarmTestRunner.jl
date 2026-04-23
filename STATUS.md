@@ -53,7 +53,7 @@ Current behavior:
   failing-file history.
 - `run(...; fresh = true)` recreates the existing daemon's worker pool before selecting and scheduling jobs.
 - `run(...; fresh = true)` preserves daemon identity and registry ownership while discarding warm worker state when the live daemon already supports the `fresh` protocol.
-- when protocol compatibility is too old, run(...; fresh = true) restarts the daemon before running.
+- when protocol compatibility is too old, `run(...; fresh = true)` restarts the daemon before running.
 - `status()` reports daemon state and current active-job count.
 - `stop()` sends a stop request and returns after the controller acknowledges it.
 
