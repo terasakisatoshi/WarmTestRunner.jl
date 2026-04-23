@@ -121,6 +121,23 @@ WarmTestRunner.run(changed_only = true)
 
 `changed_only = true` は、明示的な `tests = [...]` や `rerun_failed = true` とは同時に使えません。
 
+## ファイル変更を監視して再実行する
+
+`watch()` は `src/` と `test/` を監視し、変更後に debounce してからテストを再実行します。
+既定では `changed_only = true` を使います。
+
+```julia
+WarmTestRunner.watch()
+```
+
+すべてのテストを毎回実行したい場合は次のように指定します。
+
+```julia
+WarmTestRunner.watch(changed_only = false)
+```
+
+停止するには `Ctrl-C` を使います。
+
 ## 前回失敗したテストだけ再実行する
 
 `rerun_failed = true` を指定すると、同じデーモンまたはパッケージルートで記録されている前回の失敗ファイルだけを再実行します。

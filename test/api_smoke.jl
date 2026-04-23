@@ -6,6 +6,7 @@ using WarmTestRunner
     @test isdefined(WarmTestRunner, :run)
     @test isdefined(WarmTestRunner, :stop)
     @test isdefined(WarmTestRunner, :status)
+    @test isdefined(WarmTestRunner, :watch)
 
     cfg = WarmTestRunner.RunnerConfig(pkgroot = pwd(), jobs = 2)
     @test cfg.jobs == 2

@@ -11,12 +11,14 @@ include("sandbox.jl")
 include("worker.jl")
 include("server_registry.jl")
 include("controller.jl")
+include("watch.jl")
 
 export RunnerConfig, RunSummary, ServerHandle, ServerStatus, TestJob, TestResult, WorkerHandle
 export bootstrap_worker!, capture_test_output, discover_tests, parse_warmtest_tags
 export build_jobs, run_jobs_inline, run_test_file_in_module, run_test_in_worker!, schedule_jobs!, start_worker, start_worker_pool, status, stop, stop_worker!, stop_worker_pool!, summarize_results
 export delete_server_record!, load_server_record, registry_root, serve_forever, write_server_record!
 export serve, run
+export watch
 
 function live_record_or_nothing(pkgroot::AbstractString)
     record = load_server_record(pkgroot)

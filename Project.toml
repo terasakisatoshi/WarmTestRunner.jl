@@ -5,6 +5,7 @@ authors = ["Satoshi Terasaki <terasakisatoshi.math@gmail.com>"]
 
 [deps]
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+FileWatching = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
 Malt = "36869731-bdee-424d-aa32-cab38c994e3b"
 Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
