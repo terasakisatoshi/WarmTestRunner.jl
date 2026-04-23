@@ -67,14 +67,10 @@ end
 
 @testset "public retry_crashed=false finalizes the first crash and continues later jobs" begin
     with_fixture_daemon() do
-        @testset "unsupported retry_crashed on run" begin
-            @test begin
-                summary = WarmTestRunner.run(tests = ["crash.jl", "pass.jl"], quickfail = false, retry_crashed = false)
-                @test getfield.(summary.results, :status) == [:crashed, :passed]
-                @test summary.crashed == 1
-                @test summary.passed == 1
-            end
-        end
+        summary = WarmTestRunner.run(tests = ["crash.jl", "pass.jl"], quickfail = false, retry_crashed = false)
+        @test getfield.(summary.results, :status) == [:crashed, :passed]
+        @test summary.crashed == 1
+        @test summary.passed == 1
     end
 end
 
@@ -192,21 +188,17 @@ end
         ]
         state = controller_state(cfg, workers)
 
-        @testset "unsupported retry_crashed on schedule_jobs!" begin
-            @test begin
-                summary = WarmTestRunner.schedule_jobs!(
-                    workers,
-                    jobs,
-                    cfg;
-                    quickfail = false,
-                    retry_crashed = false,
-                    recover_worker! = index -> WarmTestRunner.recreate_worker!(state, index),
-                )
-                @test getfield.(summary.results, :status) == [:crashed, :passed]
-                @test summary.crashed == 1
-                @test summary.passed == 1
-            end
-        end
+        summary = WarmTestRunner.schedule_jobs!(
+            workers,
+            jobs,
+            cfg;
+            quickfail = false,
+            retry_crashed = false,
+            recover_worker! = index -> WarmTestRunner.recreate_worker!(state, index),
+        )
+        @test getfield.(summary.results, :status) == [:crashed, :passed]
+        @test summary.crashed == 1
+        @test summary.passed == 1
     end
 end
 
@@ -244,14 +236,10 @@ end
 
 @testset "public quickfail stops immediately when retry_crashed=false finalizes a crash" begin
     with_fixture_daemon() do
-        @testset "unsupported retry_crashed on quickfail run" begin
-            @test begin
-                summary = WarmTestRunner.run(tests = ["crash.jl", "pass.jl"], quickfail = true, retry_crashed = false)
-                @test getfield.(summary.results, :status) == [:crashed, :skipped]
-                @test summary.crashed == 1
-                @test summary.skipped == 1
-            end
-        end
+        summary = WarmTestRunner.run(tests = ["crash.jl", "pass.jl"], quickfail = true, retry_crashed = false)
+        @test getfield.(summary.results, :status) == [:crashed, :skipped]
+        @test summary.crashed == 1
+        @test summary.skipped == 1
     end
 end
 end
