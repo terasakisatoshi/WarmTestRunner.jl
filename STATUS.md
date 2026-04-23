@@ -32,7 +32,7 @@ Practical summary:
 Implemented:
 
 - `serve(; pkgroot, jobs, threads_per_worker, use_testenv, preload_package, startup_file, ...)`
-- `run(; tests = String[], quickfail = false, changed_only = false, rerun_failed = false, fresh = false, kwargs...)`
+- `run(; tests = String[], quickfail = false, changed_only = false, rerun_failed = false, fresh = false, retry_crashed = true, kwargs...)`
 - `status(; pkgroot = pwd())`
 - `stop(; pkgroot = pwd())`
 
@@ -54,6 +54,8 @@ Current behavior:
 - `run(...; fresh = true)` recreates the existing daemon's worker pool before selecting and scheduling jobs.
 - `run(...; fresh = true)` preserves daemon identity and registry ownership while discarding warm worker state when the live daemon already supports the `fresh` protocol.
 - when protocol compatibility is too old, `run(...; fresh = true)` restarts the daemon before running.
+- `run(...; retry_crashed = true)` retries a crashed file once on a recreated worker before finalizing the result.
+- `run(...; retry_crashed = false)` finalizes the first `:crashed` result for that file but still allows later jobs to use recovered workers when scheduling continues.
 - `status()` reports daemon state and current active-job count.
 - `stop()` sends a stop request and returns after the controller acknowledges it.
 
@@ -123,6 +125,7 @@ The current test suite covers:
 - inline and public `quickfail`
 - public `fresh` worker-pool refresh
 - crash recovery and worker recreation
+- public `retry_crashed` crash-recovery control
 - stale registry replacement
 - daemon request error handling
 - active-run `status()`
@@ -143,7 +146,6 @@ Latest result:
 Not implemented yet:
 
 - `watch()`
-- `retry_crashed` as a public option
 - `verbose`
 - `seed`
 - `output_format = :json`

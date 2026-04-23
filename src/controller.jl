@@ -118,6 +118,7 @@ function schedule_jobs!(
     jobs::AbstractVector{<:TestJob},
     cfg::RunnerConfig;
     quickfail::Bool = false,
+    retry_crashed::Bool = true,
     recover_worker! = nothing,
     should_stop! = () -> false,
     on_job_start! = (_worker_index, _job_index, _job) -> nothing,
@@ -169,13 +170,21 @@ function schedule_jobs!(
                             mark_quickfail!(final_result)
                             break
                         end
-                        worker = recover_worker!(worker_index)
-                        final_result = run_test_in_worker!(worker, jobs[idx], cfg)
-                        results[idx] = final_result
-                        mark_quickfail!(final_result)
-                        if final_result.status == :crashed
-                            (quickfail || should_stop!()) && break
+                        if retry_crashed
                             worker = recover_worker!(worker_index)
+                            final_result = run_test_in_worker!(worker, jobs[idx], cfg)
+                            results[idx] = final_result
+                            mark_quickfail!(final_result)
+                            if final_result.status == :crashed
+                                (quickfail || should_stop!()) && break
+                                worker = recover_worker!(worker_index)
+                            end
+                        else
+                            results[idx] = final_result
+                            mark_quickfail!(final_result)
+                            should_stop!() && break
+                            worker = recover_worker!(worker_index)
+                            quickfail && break
                         end
                     else
                         results[idx] = final_result
@@ -349,6 +358,9 @@ function launch_controller(cfg::RunnerConfig)
     logs = controller_log_paths()
     stdout_io = open(logs.stdout, "w")
     stderr_io = open(logs.stderr, "w")
+    controller_env = copy(ENV)
+    controller_env["JULIA_PROJECT"] = cfg.tool_project
+    controller_env["WARMTESTRUNNER_HOME"] = get(ENV, "WARMTESTRUNNER_HOME", joinpath(homedir(), ".julia", "warmtestrunner"))
     request = """
         using WarmTestRunner
         cfg = WarmTestRunner.make_config(;
@@ -369,8 +381,7 @@ function launch_controller(cfg::RunnerConfig)
     cmd = pipeline(
         setenv(
             `$(Base.julia_cmd()) --startup-file=no -e $request`,
-            "JULIA_PROJECT" => cfg.tool_project,
-            "WARMTESTRUNNER_HOME" => get(ENV, "WARMTESTRUNNER_HOME", joinpath(homedir(), ".julia", "warmtestrunner")),
+            controller_env,
         ),
         stdin = devnull,
         stdout = stdout_io,
@@ -385,13 +396,14 @@ function launch_controller(cfg::RunnerConfig)
     end
 end
 
-function run_jobs_on_pool!(state::ControllerState, jobs::AbstractVector{<:TestJob}; quickfail::Bool)
+function run_jobs_on_pool!(state::ControllerState, jobs::AbstractVector{<:TestJob}; quickfail::Bool, retry_crashed::Bool = true)
     summary = try
         schedule_jobs!(
             state.workers,
             jobs,
             state.cfg;
             quickfail = quickfail,
+            retry_crashed = retry_crashed,
             recover_worker! = worker_index -> recreate_worker!(state, worker_index),
             should_stop! = () -> controller_stop_requested(state),
             on_job_start! = (worker_index, job_index, job) -> adjust_running_jobs!(state, +1),
@@ -479,7 +491,8 @@ function handle_request!(state::ControllerState, request)
             rethrow()
         end
         quickfail = request_payload(request, :quickfail, false)
-        return run_jobs_on_pool!(state, jobs; quickfail = quickfail)
+        retry_crashed = request_payload(request, :retry_crashed, true)
+        return run_jobs_on_pool!(state, jobs; quickfail = quickfail, retry_crashed = retry_crashed)
     elseif cmd == :stop
         should_interrupt, workers_to_stop = lock(state.lock) do
             state.stop_requested = true
