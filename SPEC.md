@@ -115,12 +115,12 @@ the worker to execute the target package's tests by:
 
 ### 4.4 Sandbox Test Execution
 
-Each scheduled test file is executed inside a fresh module within a reused worker. This
-gives the system soft isolation:
+Each scheduled test file is executed inside a shared test module owned by a reused worker.
+This gives the system warm, worker-local context with explicit reset points:
 
 - the worker process persists across runs
-- each test file gets a new module namespace
-- a worker can be discarded and recreated when contamination is suspected
+- test files on the same worker can share imported names and helper definitions
+- `fresh=true` or worker recreation discards that shared module and starts over
 
 ## 5. Public API
 
@@ -317,27 +317,28 @@ reruns and file-level parallelism rather than for individual `@testset` distribu
 
 Within a worker, each test file is executed by:
 
-- creating a fresh module
-- optionally including helper code
-- including the test file inside that module
+- creating a shared test module once during worker bootstrap
+- optionally preloading the target package into that shared module
+- including each scheduled test file inside that shared module
 
 Illustrative pseudocode:
 
 ```julia
-mod = Module(gensym(:WarmTestModule))
+mod = WarmTestContext
 Core.eval(mod, :(using Test))
 Core.eval(mod, :(include($testfile)))
 ```
 
 The exact implementation may need additional bindings or helper utilities, but the
-specification requires a fresh module namespace per file.
+specification requires a shared worker-local module rather than a fresh namespace per
+file.
 
 ### 6.9 Isolation Model
 
 Isolation is soft, not absolute.
 
 - worker processes persist across runs
-- test files get fresh module namespaces
+- each worker owns one shared test module
 - `fresh=true` forces worker recreation
 - a worker may be recreated automatically after a crash or contamination event
 
@@ -638,7 +639,7 @@ Phase 1:
 
 - one `Malt.Worker`
 - `TestEnv.activate(pkgroot)`
-- run one test file inside a fresh module
+- run one test file inside a shared worker-local module
 - return structured results
 
 Phase 2:
@@ -678,8 +679,8 @@ repository are:
 - use `TestEnv` as the test-environment activation layer
 - use file-level process scheduling inspired by `ParallelTestRunner`
 - adopt warm, persistent workers inspired by `DaemonMode`
-- keep isolation soft, with fresh modules per file and worker recreation as the hard
-  reset mechanism
+- keep isolation soft, with shared worker-local test modules and worker recreation as the
+  hard reset mechanism
 - treat `serve`, `run`, `stop`, and `status` as the MVP-critical API surface
 
 ## 12. Out-Of-Spec Questions

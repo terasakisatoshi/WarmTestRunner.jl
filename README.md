@@ -9,7 +9,7 @@
 - 日々の編集とテストの反復: `WarmTestRunner.run()`
 - マージ前、リリース前、CI 相当の最終確認: `Pkg.test()`
 
-`WarmTestRunner.jl` は `Pkg.test()` の完全な置き換えではありません。worker プロセスは使い回されるため、厳密なクリーンルーム実行よりも反復速度を優先します。
+`WarmTestRunner.jl` は `Pkg.test()` の完全な置き換えではありません。worker プロセスは使い回され、同じ worker 上のテストファイルは worker-local な共有 test context を使います。厳密なクリーンルーム実行よりも反復速度を優先します。
 
 ## 必要条件
 
@@ -194,7 +194,7 @@ WarmTestRunner.run(tests = ["foo.jl", "bar.jl"], rerun_failed = true)
 
 ## worker を作り直す
 
-warm な worker は実行間で状態を保持します。グローバル状態の汚染が疑わしい場合は、`fresh = true` で worker pool を作り直してからテストを実行できます。
+warm な worker は実行間で状態を保持します。worker-local な共有 test context も保持されるため、グローバル状態の汚染や共有定義の持ち越しが疑わしい場合は、`fresh = true` で worker pool を作り直してからテストを実行できます。
 
 ```julia
 WarmTestRunner.run(fresh = true)
@@ -238,7 +238,7 @@ WarmTestRunner.stop()
 ENV["MY_TEST_MODE"] = "warm"
 ```
 
-このファイルは通常のテストファイルとしては自動実行されません。
+このファイルは通常のテストファイルとしては自動実行されません。ここで作った状態は、その worker の共有 test context から参照される前提です。
 
 ## Revise 連携
 

@@ -39,6 +39,7 @@ end
 Base.@kwdef mutable struct WorkerHandle
     id::Int
     proc::Any
+    context_module::Symbol
     state::Symbol = :booting
     booted_at::Float64 = 0.0
     runs_completed::Int = 0

@@ -43,6 +43,48 @@ function controller_state(cfg, workers; pkgroot = FIXTURE_ROOT, server_id = "tes
     )
 end
 
+function init_shared_context_fixture(tmp::AbstractString)
+    pkgroot = joinpath(tmp, "SharedContextCrashFixture")
+    mkpath(joinpath(pkgroot, "src"))
+    mkpath(joinpath(pkgroot, "test"))
+
+    open(joinpath(pkgroot, "Project.toml"), "w") do io
+        write(io, """
+        name = "SharedContextCrashFixture"
+        uuid = "66666666-7777-8888-9999-000000000000"
+        version = "0.1.0"
+        """)
+    end
+    open(joinpath(pkgroot, "src", "SharedContextCrashFixture.jl"), "w") do io
+        write(io, """
+        module SharedContextCrashFixture
+
+        add1(x) = x + 1
+
+        end
+        """)
+    end
+    open(joinpath(pkgroot, "test", "define_shared.jl"), "w") do io
+        write(io, """
+        using Test
+        using SharedContextCrashFixture
+        shared_ctx_value = SharedContextCrashFixture.add1(40)
+        @test shared_ctx_value == 41
+        """)
+    end
+    open(joinpath(pkgroot, "test", "read_shared.jl"), "w") do io
+        write(io, """
+        using Test
+        shared_ctx_value == 41 || error("shared_ctx_value mismatch")
+        @test true
+        """)
+    end
+    open(joinpath(pkgroot, "test", "crash.jl"), "w") do io
+        write(io, "exit(1)\n")
+    end
+    return pkgroot
+end
+
 @testset "crash_recovery" begin
     @testset "daemon recovers a crashed worker and retries later jobs" begin
         with_fixture_daemon() do
@@ -106,6 +148,31 @@ end
                 @test getfield.(summary.results, :status) == [:crashed]
                 @test summary.crashed == 1
                 @test isfile(marker)
+            end
+        end
+    end
+
+    @testset "crash recovery recreates workers with clean shared context" begin
+        mktempdir() do tmp
+            pkgroot = init_shared_context_fixture(tmp)
+            withenv("WARMTESTRUNNER_HOME" => tmp) do
+                cd(pkgroot) do
+                    WarmTestRunner.serve(jobs = 1)
+                    try
+                        seeded = WarmTestRunner.run(tests = ["define_shared.jl"])
+                        visible = WarmTestRunner.run(tests = ["read_shared.jl"])
+                        crashed = WarmTestRunner.run(tests = ["crash.jl"], retry_crashed = false)
+                        cleared = WarmTestRunner.run(tests = ["read_shared.jl"], retry_crashed = false)
+
+                        @test getfield.(seeded.results, :status) == [:passed]
+                        @test getfield.(visible.results, :status) == [:passed]
+                        @test getfield.(crashed.results, :status) == [:crashed]
+                        @test getfield.(cleared.results, :status) == [:errored]
+                        @test occursin("UndefVarError", something(only(cleared.results).stacktrace, ""))
+                    finally
+                        WarmTestRunner.stop()
+                    end
+                end
             end
         end
     end
