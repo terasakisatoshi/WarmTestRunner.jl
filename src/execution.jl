@@ -84,6 +84,7 @@ function push_line_pattern!(patterns::Vector{Any}, filter_lines::Set{Int}, line:
 end
 
 function push_line_pattern!(patterns::Vector{Any}, filter_lines::Set{Int}, range::UnitRange{<:Integer})
+    isempty(range) && throw(ArgumentError("line selection must not be empty"))
     push!(patterns, range)
     union!(filter_lines, Int.(range))
     return nothing
@@ -99,10 +100,12 @@ function line_patterns_for_selection(lines)
     if lines isa Integer || lines isa UnitRange{<:Integer}
         push_line_pattern!(patterns, filter_lines, lines)
     else
+        applicable(iterate, lines) || throw(ArgumentError("line selections must be integers, ranges, or collections of integers/ranges; got $(repr(lines))"))
         for line in lines
             push_line_pattern!(patterns, filter_lines, line)
         end
     end
+    isempty(filter_lines) && throw(ArgumentError("line selection must not be empty"))
     return (; patterns, filter_lines)
 end
 

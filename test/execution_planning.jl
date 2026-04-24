@@ -205,3 +205,9 @@ end
         @test !occursin("unselected", result.stdout)
     end
 end
+
+@testset "invalid line selections are rejected" begin
+    cfg = WarmTestRunner.make_config(pkgroot = PLANNING_FIXTURE_ROOT)
+    @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; line_patterns = ["selection.jl" => Int[]])
+    @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; line_patterns = ["selection.jl" => 1.5])
+end
