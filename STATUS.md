@@ -169,6 +169,7 @@ The current test suite covers:
 Latest verification commands:
 
 ```bash
+julia --project=. --startup-file=no -e 'using Pkg; Pkg.test()'
 julia --project=. --startup-file=no -e 'include("test/execution_planning.jl")'
 julia --project=. --startup-file=no -e 'include("test/controller_daemon.jl")'
 julia --project=. --startup-file=no -e 'include("test/worker_single.jl")'
@@ -177,6 +178,7 @@ julia --project=. --startup-file=no examples/smoke_test.jl
 
 Latest result:
 
+- full package test suite passed on 2026-04-24
 - targeted backend/controller/worker suites passed on 2026-04-24
 - external Tensor4all validation passed on 2026-04-24:
   `test/api/skeleton_alignment.jl` ran through WarmTestRunner with selected-file result
