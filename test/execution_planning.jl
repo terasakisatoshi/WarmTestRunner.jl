@@ -221,6 +221,13 @@ end
                 @testset "grouped selected" begin
                     @test true
                 end
+
+                module Inner
+                using Test
+                @testset "inside module selected" begin
+                    @test false
+                end
+                end
                 """,
                 "wrapped.jl" => """
                 using Test
@@ -262,6 +269,11 @@ end
         plans = WarmTestRunner.build_execution_plans(cfg; testsets = ["wrapped selected"])
         @test endswith(only(only(plans).selections).file, joinpath("test", "wrapped.jl"))
         result = WarmTestRunner.execute_plan(only(plans); topmodule = Module(:ExecutionPlanningWrappedNameInclude))
+        @test result.status == :failed
+
+        plans = WarmTestRunner.build_execution_plans(cfg; testsets = ["inside module selected"])
+        @test endswith(only(only(plans).selections).file, joinpath("test", "grouped.jl"))
+        result = WarmTestRunner.execute_plan(only(plans); topmodule = Module(:ExecutionPlanningModuleName))
         @test result.status == :failed
 
         @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; testsets = ["latent hidden"])

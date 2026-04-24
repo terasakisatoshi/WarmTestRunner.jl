@@ -192,7 +192,7 @@ end
 
 function top_level_testset_expr(@nospecialize(expr))
     testset_macro_name(expr) !== nothing && return true
-    Meta.isexpr(expr, :block) || return false
+    is_static_executable_container(expr) || return false
     return any(arg -> top_level_testset_expr(arg), expr.args)
 end
 
