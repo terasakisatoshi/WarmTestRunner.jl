@@ -51,6 +51,16 @@ end
     selection = only(only(plans).selections)
     @test endswith(selection.file, joinpath("test", "selection.jl"))
     @test selection.run_all
+    @test only(plans).label == "test/selection.jl"
+end
+
+@testset "multiple file selections produce selected-file result units" begin
+    cfg = WarmTestRunner.make_config(pkgroot = PLANNING_FIXTURE_ROOT)
+    plans = WarmTestRunner.build_execution_plans(cfg; tests = ["errors.jl", "selection.jl"])
+    @test length(plans) == 2
+    @test Set(plan.label for plan in plans) == Set(["test/errors.jl", "test/selection.jl"])
+    @test all(plan -> endswith(plan.entryfile, joinpath("test", "runtests.jl")), plans)
+    @test all(plan -> length(plan.selections) == 1 && only(plan.selections).run_all, plans)
 end
 
 @testset "unreachable selected file errors" begin

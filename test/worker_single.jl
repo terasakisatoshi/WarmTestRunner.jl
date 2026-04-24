@@ -62,7 +62,7 @@ end
             cfg,
         )
         @test result.status == :passed
-        @test result.path == "test/runtests.jl"
+        @test result.path == "test/selection.jl"
         @test occursin("selected testset", result.stdout)
         @test occursin("other testset", result.stdout)
         @test !occursin("failure testset", result.stdout)

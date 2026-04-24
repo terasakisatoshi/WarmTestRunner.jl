@@ -405,11 +405,12 @@ function build_execution_plans(
         return [ExecutionPlan(entryfile = entry, run_all = true, label = "test/runtests.jl")]
     end
 
-    selections = TestSelection[]
+    file_selections = TestSelection[]
     for name in selected_tests
         file = selected_file_from_map(reachability, cfg, name, entry)
-        push!(selections, TestSelection(file = file, run_all = true))
+        push_selection!(file_selections, TestSelection(file = file, run_all = true))
     end
+    selections = TestSelection[]
     reachable_files = all_reachable_files(reachability)
     for pattern in selected_testsets
         for file in files_for_testset_pattern(reachable_files, pattern)
@@ -429,8 +430,20 @@ function build_execution_plans(
     if (changed_only || rerun_failed) && isempty(selected_tests)
         return ExecutionPlan[]
     end
-    return [
-        ExecutionPlan(entryfile = entry, selections = group, label = "test/runtests.jl")
-        for group in plan_selection_groups(selections)
+    plans = [
+        ExecutionPlan(
+            entryfile = entry,
+            selections = [selection],
+            label = result_path(cfg, selection.file),
+        )
+        for selection in file_selections
     ]
+    if !isempty(selections)
+        append!(
+            plans,
+            ExecutionPlan(entryfile = entry, selections = group, label = "test/runtests.jl")
+            for group in plan_selection_groups(selections)
+        )
+    end
+    return plans
 end

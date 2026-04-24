@@ -82,6 +82,32 @@ function build_plan_jobs(
     return plans_to_jobs(cfg, plans)
 end
 
+function absolute_diagnostic_path(cfg::RunnerConfig, path::AbstractString)
+    isempty(path) && return ""
+    return normpath(isabspath(path) ? String(path) : joinpath(cfg.pkgroot, path))
+end
+
+function failed_selection_paths_from_diagnostics(
+    cfg::RunnerConfig,
+    selections::AbstractVector{<:TestSelection},
+    diagnostics::AbstractVector{<:TestDiagnostic},
+)
+    failed_files = Set{String}()
+    for diagnostic in diagnostics
+        path = absolute_diagnostic_path(cfg, diagnostic.file)
+        isempty(path) || push!(failed_files, path)
+    end
+    isempty(failed_files) && return String[]
+
+    paths = String[]
+    for selection in selections
+        selection_path = normpath(abspath(selection.file))
+        selection_path in failed_files || continue
+        push!(paths, result_path(cfg, selection.file))
+    end
+    return unique!(paths)
+end
+
 function failed_paths_for_job(cfg::RunnerConfig, job::TestJob, result::TestResult)
     result.status in (:failed, :errored, :crashed) || return String[]
     plan = job.plan
@@ -89,6 +115,9 @@ function failed_paths_for_job(cfg::RunnerConfig, job::TestJob, result::TestResul
     if plan.run_all || isempty(plan.selections)
         return String[plan.label]
     end
+
+    diagnostic_paths = failed_selection_paths_from_diagnostics(cfg, plan.selections, result.diagnostics)
+    isempty(diagnostic_paths) || return diagnostic_paths
 
     paths = String[]
     for selection in plan.selections

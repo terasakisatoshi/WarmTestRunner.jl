@@ -678,7 +678,7 @@ end
             first = try
                 WarmTestRunner.run(
                     pkgroot = VIRTUAL_FIXTURE_ROOT,
-                    tests = ["errors.jl"],
+                    tests = ["errors.jl", "selection.jl"],
                     jobs = 1,
                     use_revise = false,
                     fresh = true,
@@ -689,8 +689,12 @@ end
 
             @test first isa WarmTestRunner.RunSummary
             if first isa WarmTestRunner.RunSummary
-                @test getfield.(first.results, :status) == [:failed]
+                results_by_path = Dict(result.path => result for result in first.results)
+                @test Set(keys(results_by_path)) == Set(["test/errors.jl", "test/selection.jl"])
+                @test results_by_path["test/errors.jl"].status == :failed
+                @test results_by_path["test/selection.jl"].status == :passed
                 @test WarmTestRunner.status(pkgroot = VIRTUAL_FIXTURE_ROOT).last_failed == ["test/errors.jl"]
+                @test occursin("selected testset", results_by_path["test/selection.jl"].stdout)
             end
 
             rerun = try
@@ -737,7 +741,7 @@ end
             @test summary isa WarmTestRunner.RunSummary
             if summary isa WarmTestRunner.RunSummary
                 @test getfield.(summary.results, :status) == [:passed]
-                @test only(summary.results).path == "test/runtests.jl"
+                @test only(summary.results).path == "test/selection.jl"
                 @test occursin("selected testset", only(summary.results).stdout)
                 @test occursin("other testset", only(summary.results).stdout)
                 @test !occursin("failure testset", only(summary.results).stdout)
