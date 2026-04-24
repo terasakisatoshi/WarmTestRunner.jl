@@ -17,13 +17,15 @@ should be updated as the design evolves in this repository.
 purpose is to make repeated local test runs faster by combining:
 
 - `TestEnv.jl` for activating test dependencies in an interactive or long-lived process
-- `ParallelTestRunner.jl`-style file-level process parallelism
+- `TestRunner.jl`-style virtual test execution through `test/runtests.jl`
+- worker-pool parallelism over execution plans
 - `DaemonMode.jl`-style warm process reuse
 - `Malt.jl` as the worker-process substrate
 
-The core idea is to keep a pool of warm worker processes alive across runs and schedule
-test files onto that pool. The package is explicitly optimized for the local inner loop
-of package development rather than for strict, clean-room test isolation.
+The core idea is to keep a pool of warm worker processes alive across runs and execute
+`ExecutionPlan`s inside worker `Main`. When `test/runtests.jl` exists, it is the
+authoritative suite entry. Targeted file runs are still evaluated through that entry so
+top-level setup and include structure match the ordinary Julia test suite.
 
 ## 2. Goals And Non-goals
 
@@ -32,10 +34,12 @@ of package development rather than for strict, clean-room test isolation.
 `WarmTestRunner.jl` is intended to provide the following:
 
 - Activation of the package's test dependencies inside reusable worker processes
-- Parallel execution of multiple test files across multiple worker processes
+- Execution of ordinary Julia test suites through `test/runtests.jl`
+- Targeted file, testset, line, and expression selection without bypassing suite setup
+- Parallel execution of independent execution plans across multiple worker processes
 - Reuse of workers across runs so that package loading, compilation, and JIT work can be
   amortized
-- Structured per-file results, including output capture and failure diagnostics
+- Structured result-unit output, including output capture and failure diagnostics
 - Reasonable crash recovery when an individual worker dies
 - A development-oriented API that supports whole-suite runs and targeted reruns
 
@@ -77,7 +81,7 @@ A package author is iterating locally and repeatedly performs this loop:
 
 - combine with `Revise.jl` for rapid development feedback
 - watch source and test files and rerun automatically
-- shard test files across workers
+- shard selected execution plans across workers
 - rerun only files that failed previously
 
 ## 4. System Model
@@ -88,8 +92,9 @@ A package author is iterating locally and repeatedly performs this loop:
 
 The controller runs in the client or coordinating process and is responsible for:
 
-- discovering candidate test files
-- applying file and tag filters
+- discovering or parsing the suite entry
+- applying file, testset, line, expression, and later tag filters
+- creating execution plans
 - creating or connecting to a worker pool
 - scheduling jobs onto available workers
 - aggregating results
@@ -113,14 +118,16 @@ the worker to execute the target package's tests by:
 - optionally preloading the target package
 - optionally running a user hook
 
-### 4.4 Sandbox Test Execution
+### 4.4 Virtual Test Execution
 
-Each scheduled test file is executed inside a shared test module owned by a reused worker.
-This gives the system warm, worker-local context with explicit reset points:
+Each scheduled plan is executed by a virtual execution backend inside the worker's
+`Main`. This gives the system warm, worker-local context with explicit reset points:
 
 - the worker process persists across runs
-- test files on the same worker can share imported names and helper definitions
-- `fresh=true` or worker recreation discards that shared module and starts over
+- `Main` persists across runs
+- `test/runtests.jl` and its `include(...)` tree are preserved when present
+- selected included files run through the same suite entry instead of direct include
+- `fresh=true` or worker recreation discards that worker `Main` state and starts over
 
 ## 5. Public API
 
@@ -163,7 +170,10 @@ Connect to an existing server or create an ephemeral session, then run tests.
 
 ```julia
 run(;
-    tests::Vector{String} = String[],
+    tests = nothing,
+    testsets = nothing,
+    line_patterns = nothing,
+    expression_patterns = nothing,
     jobs::Union{Int, Nothing} = nothing,
     quickfail::Bool = false,
     verbose::Bool = false,
@@ -178,7 +188,12 @@ run(;
 
 Behavior:
 
-- if `tests == []`, discover all candidate test files
+- if no selector is supplied, run the whole suite
+- if `tests == []`, treat it as no public file selector
+- if `tests` selects included files, execute them through `test/runtests.jl` when that
+  entry exists
+- if `testsets`, `line_patterns`, or `expression_patterns` are supplied, build focused
+  virtual execution plans
 - if `changed_only == true`, select a subset based on local changes
 - if `fresh == true`, recreate all workers before scheduling jobs
 - if `rerun_failed == true`, reuse the last recorded failing file set for the same server
@@ -238,24 +253,30 @@ julia --project -e 'using WarmTestRunner; WarmTestRunner.stop()'
 
 ### 6.1 Test Discovery
 
-Default discovery rules:
+Default planning rules:
 
-- recursively discover `*.jl` under `test/`
-- exclude `test/runtests.jl` by default because it is treated as an orchestration file
-- preserve stable ordering unless a scheduling strategy explicitly reorders jobs
+- prefer `test/runtests.jl` as the suite entry when it exists
+- discover statically reachable `include(...)` targets from the suite entry
+- select files only if they are reachable from that entry
+- fall back to recursive `*.jl` file-entry discovery under `test/` only when no
+  `test/runtests.jl` exists
+- exclude `test/warmtest_bootstrap.jl` from file-entry discovery
+- preserve stable ordering unless a scheduling strategy explicitly reorders plans
 
 ### 6.2 Filtering
 
 The system should support these selection modes:
 
 - explicit file path
+- named testset selection
+- line selection within a file
+- expression or testset-name selection within a file
 - filename substring match
 - regular-expression match
 - tag include or exclude
 
-The first public Julia API only guarantees explicit `tests`. Other selectors may appear
-first in CLI options or configuration, then graduate into the Julia API if they prove
-useful.
+The current Julia API implements explicit files, named testsets, line selectors, and
+expression selectors. Substring, regex, and tag filters are future filtering modes.
 
 ### 6.3 Tag Format
 
@@ -308,37 +329,40 @@ created, not before every individual test file.
 
 ### 6.7 Execution Unit
 
-The smallest scheduling unit is a test file.
+The scheduling unit is an `ExecutionPlan`.
 
-This is a deliberate design choice. `WarmTestRunner.jl` optimizes for fast file-level
-reruns and file-level parallelism rather than for individual `@testset` distribution.
+Whole-suite runs usually produce one plan for `test/runtests.jl`. File-selected runs
+through that entry report selected files as result units. Testset-level diagnostics can
+still appear inside stdout, exception summaries, stack traces, and structured
+diagnostics.
 
-### 6.8 Per-file Execution Model
+### 6.8 Virtual Execution Model
 
-Within a worker, each test file is executed by:
+Within a worker, each plan is executed by:
 
-- creating a shared test module once during worker bootstrap
-- optionally preloading the target package into that shared module
-- including each scheduled test file inside that shared module
+- using worker `Main` as the default top module
+- parsing source with `JuliaSyntax`
+- evaluating non-test top-level setup code
+- intercepting `include(...)` so included files are handled by the same backend
+- selectively executing matching `@test` and `@testset` expressions
+- collecting Test.jl output and structured diagnostics
 
 Illustrative pseudocode:
 
 ```julia
-mod = WarmTestContext
-Core.eval(mod, :(using Test))
-Core.eval(mod, :(include($testfile)))
+Core.eval(Main, :(using Test))
+execute_plan(plan; topmodule = Main)
 ```
 
-The exact implementation may need additional bindings or helper utilities, but the
-specification requires a shared worker-local module rather than a fresh namespace per
-file.
+The implementation must not reintroduce a synthetic per-file module model as the normal
+execution path.
 
 ### 6.9 Isolation Model
 
 Isolation is soft, not absolute.
 
 - worker processes persist across runs
-- each worker owns one shared test module
+- each worker reuses `Main`
 - `fresh=true` forces worker recreation
 - a worker may be recreated automatically after a crash or contamination event
 
@@ -390,9 +414,10 @@ core requirement.
 
 ### 6.13 Result Model
 
-Each test file returns a structured result with at least:
+Each result unit returns a structured result with at least:
 
 - `status`, one of `passed`, `failed`, `errored`, `crashed`, or `skipped`
+- path label for the suite entry or selected file
 - elapsed wall-clock time
 - captured `stdout`
 - captured `stderr`
@@ -423,7 +448,8 @@ Failure detail should include:
 `run(output_format = :json)` must make structured output available for editor integration
 or external tooling.
 
-The exact schema may evolve, but it must preserve file-level status and diagnostics.
+The exact schema may evolve, but it must preserve result status and diagnostics,
+including user-file locations where available.
 
 ## 7. Reliability Model
 
@@ -515,9 +541,9 @@ Known caveats:
 
 ### 8.2 Relationship To Test Suite Structure
 
-`WarmTestRunner.jl` works best when test files are mostly independent. Suites that rely
-on implicit ordering or heavy global coupling may require cleanup or may need to keep
-using `Pkg.test()` as the primary runner.
+`WarmTestRunner.jl` works best when suites can be rerun in a warm `Main`. Suites that
+define constants or modules repeatedly may need `fresh=true` between runs, and final
+verification should still use `Pkg.test()`.
 
 ### 8.3 Watch Mode
 
@@ -556,8 +582,9 @@ WarmTestRunner.jl/
 │  ├─ controller.jl
 │  ├─ worker.jl
 │  ├─ bootstrap.jl
+│  ├─ execution.jl
+│  ├─ virtual_execution.jl
 │  ├─ sandbox.jl
-│  ├─ scheduler.jl
 │  ├─ results.jl
 │  ├─ server_registry.jl
 │  ├─ watch.jl
@@ -591,11 +618,33 @@ struct WorkerHandle
     dirty::Bool
 end
 
+struct TestDiagnostic
+    file::String
+    line::Int
+    kind::Symbol
+    message::String
+end
+
+struct TestSelection
+    file::String
+    patterns::Vector
+    filter_lines::Union{Nothing, Set{Int}}
+    run_all::Bool
+end
+
+struct ExecutionPlan
+    entryfile::String
+    selections::Vector{TestSelection}
+    run_all::Bool
+    label::String
+end
+
 struct TestJob
     path::String
     name::String
     tags::Vector{String}
     est_seconds::Float64
+    plan::Union{Nothing, ExecutionPlan}
 end
 
 struct TestResult
@@ -607,6 +656,7 @@ struct TestResult
     exception_summary::Union{Nothing, String}
     stacktrace::Union{Nothing, String}
     worker_id::Union{Nothing, Int}
+    diagnostics::Vector{TestDiagnostic}
 end
 
 struct RunSummary
@@ -626,11 +676,12 @@ Illustrative internal responsibilities:
 
 ```julia
 discover_tests(pkgroot)::Vector{TestJob}
+build_execution_plans(cfg)::Vector{ExecutionPlan}
 bootstrap_worker!(worker, cfg)::Nothing
 run_test_in_worker!(worker, job, cfg)::TestResult
 recreate_worker!(pool, i)::Nothing
 schedule_jobs!(pool, jobs, cfg)::RunSummary
-capture_test_output(f)::NamedTuple
+execute_plan(plan; topmodule = Main)::TestResult
 ```
 
 ### 9.4 Phased Delivery
@@ -639,7 +690,7 @@ Phase 1:
 
 - one `Malt.Worker`
 - `TestEnv.activate(pkgroot)`
-- run one test file inside a shared worker-local module
+- run one execution plan in worker `Main`
 - return structured results
 
 Phase 2:
@@ -661,11 +712,19 @@ Phase 4:
 - `changed_only`
 - duration-aware scheduling
 
+Phase 5:
+
+- TestRunner-style virtual execution through `test/runtests.jl`
+- included-file, testset, line, and expression selectors
+- JSON diagnostics
+
 ## 10. Known Constraints
 
 - Worker state can remain contaminated across runs through globals, random state,
   environment mutation, and logging configuration.
-- File-level parallelism works best when test files are independently runnable.
+- Warm `Main` can expose repeated-definition issues; use `fresh=true` when needed.
+- File-selected result units still execute through `test/runtests.jl` when that entry is
+  present.
 - The worker bootstrap must be explicit because process environment inheritance cannot be
   assumed.
 - The package intentionally does not promise `Pkg.test()` equivalence.
@@ -677,10 +736,10 @@ repository are:
 
 - use `Malt` as the worker-process substrate
 - use `TestEnv` as the test-environment activation layer
-- use file-level process scheduling inspired by `ParallelTestRunner`
+- use TestRunner-style virtual execution as the canonical test backend
 - adopt warm, persistent workers inspired by `DaemonMode`
-- keep isolation soft, with shared worker-local test modules and worker recreation as the
-  hard reset mechanism
+- keep isolation soft, with persistent worker `Main` and worker recreation as the hard
+  reset mechanism
 - treat `serve`, `run`, `stop`, and `status` as the MVP-critical API surface
 
 ## 12. Out-Of-Spec Questions
