@@ -33,7 +33,7 @@ $ cd path/to/target/package
 $ julia --project -e 'using WarmTestRunner; summary = runtests()'
 ```
 
-`runtests()` は `test/runtests.jl` があればそれをテストスイートの入口として実行します。`tests = [...]` で一部のファイルを指定した場合も、到達可能な included file であれば `test/runtests.jl` を経由して、そのファイルのテストだけを選択実行します。選択されていない included file でも、依存関係や top-level setup として必要な非テスト式は評価されることがありますが、選択外ファイルの `@test` / `@testset` は実行されません。
+`runtests()` は `test/runtests.jl` があればそれをテストスイートの入口として実行します。`tests = [file.jl]` で `./test/file.jl` のファイルを指定した場合も、到達可能な included file であれば `test/runtests.jl` を経由して、そのファイルのテストだけを選択実行します。選択されていない included file でも、依存関係や top-level setup として必要な非テスト式は評価されることがありますが、選択外ファイルの `@test` / `@testset` は実行されません。
 
 返り値は `RunSummary` です。
 
