@@ -24,7 +24,7 @@ using WarmTestRunner
 
     data = WarmTestRunner.summary_to_json_data(summary)
 
-    @test data.schema_version == 1
+    @test data.schema_version == 2
     @test data.failed == 1
     @test data.elapsed_total == 0.25
     @test length(data.results) == 1
@@ -55,8 +55,30 @@ end
     json = WarmTestRunner.summary_to_json(summary)
 
     @test json isa String
-    @test occursin("\"schema_version\":1", json)
+    @test occursin("\"schema_version\":2", json)
     @test occursin("\"path\":\"quote\\\"slash\\\\newline\\n.jl\"", json)
     @test occursin("\"stdout\":\"line1\\nline2\"", json)
     @test occursin("\"exception_summary\":null", json)
+end
+
+@testset "JSON includes diagnostics schema v2" begin
+    diagnostic = WarmTestRunner.TestDiagnostic(
+        file = "test/foo.jl",
+        line = 42,
+        kind = :fail,
+        message = "expected true",
+        related = WarmTestRunner.TestDiagnosticRelated[],
+    )
+    result = WarmTestRunner.TestResult(
+        path = "test/foo.jl",
+        status = :failed,
+        elapsed = 0.1,
+        diagnostics = [diagnostic],
+    )
+    summary = WarmTestRunner.summarize_results([result])
+    json = WarmTestRunner.summary_to_json(summary)
+    @test occursin("\"schema_version\":2", json)
+    @test occursin("\"diagnostics\"", json)
+    @test occursin("\"kind\":\"fail\"", json)
+    @test occursin("\"line\":42", json)
 end

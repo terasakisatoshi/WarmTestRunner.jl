@@ -12,6 +12,24 @@ function summarize_results(results::AbstractVector{<:TestResult})
     )
 end
 
+function diagnostic_related_to_json_data(related::TestDiagnosticRelated)
+    return (
+        file = related.file,
+        line = related.line,
+        message = related.message,
+    )
+end
+
+function diagnostic_to_json_data(diagnostic::TestDiagnostic)
+    return (
+        file = diagnostic.file,
+        line = diagnostic.line,
+        kind = String(diagnostic.kind),
+        message = diagnostic.message,
+        related = [diagnostic_related_to_json_data(item) for item in diagnostic.related],
+    )
+end
+
 function result_to_json_data(result::TestResult)
     return (
         path = result.path,
@@ -22,12 +40,13 @@ function result_to_json_data(result::TestResult)
         exception_summary = result.exception_summary,
         stacktrace = result.stacktrace,
         worker_id = result.worker_id,
+        diagnostics = [diagnostic_to_json_data(diagnostic) for diagnostic in result.diagnostics],
     )
 end
 
 function summary_to_json_data(summary::RunSummary)
     return (
-        schema_version = 1,
+        schema_version = 2,
         passed = summary.passed,
         failed = summary.failed,
         errored = summary.errored,
