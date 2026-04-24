@@ -280,6 +280,24 @@ function evaluate_setup_expr!(interp::WarmTestInterpreter, context::Module, expr
     return nothing
 end
 
+function evaluate_setup_node!(interp::WarmTestInterpreter, context::Module, node::JS.SyntaxNode)
+    expr = try
+        Expr(node)
+    catch
+        return nothing
+    end
+    is_testset_or_test(expr) && return nothing
+    if expr isa Expr && is_static_executable_container(expr) && !is_static_include_call(expr)
+        for index in 1:JS.numchildren(node)
+            evaluate_setup_node!(interp, context, node[index])
+        end
+        return nothing
+    end
+    lnn = LineNumberNode(JS.source_line(node), interp.filename)
+    evaluate_setup_expr!(interp, context, expr, lnn)
+    return nothing
+end
+
 function execute_selected_includes!(interp::WarmTestInterpreter, context::Module, node::JS.SyntaxNode)
     expr = try
         Expr(node)
@@ -296,8 +314,14 @@ function execute_selected_includes!(interp::WarmTestInterpreter, context::Module
     end
     expr isa Expr || return nothing
     is_static_executable_container(expr) || return nothing
-    for index in 1:JS.numchildren(node)
-        execute_selected_includes!(interp, context, node[index])
+    child_count = JS.numchildren(node)
+    reaches = [includes_selected_target(interp, node[index]) for index in 1:child_count]
+    for index in 1:child_count
+        if reaches[index]
+            execute_selected_includes!(interp, context, node[index])
+        elseif index < child_count && any(@view reaches[index+1:end])
+            evaluate_setup_node!(interp, context, node[index])
+        end
     end
     return nothing
 end

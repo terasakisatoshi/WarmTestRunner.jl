@@ -307,16 +307,20 @@ end
             using Test
 
             @testset "root wrapper" begin
+                include("wrapper_setup.jl")
                 @test false
                 include("target.jl")
             end
             """,
             files = Dict(
+                "wrapper_setup.jl" => """
+                const WRAPPED_SETUP_VALUE = 41
+                """,
                 "target.jl" => """
                 using Test
 
                 @testset "target selected" begin
-                    @test true
+                    @test WRAPPED_SETUP_VALUE + 1 == 42
                 end
                 """,
             ),
