@@ -5,6 +5,7 @@ using Serialization
 using TOML
 
 const FIXTURE_ROOT = joinpath(@__DIR__, "packages", "FixturePkg")
+const VIRTUAL_FIXTURE_ROOT = joinpath(@__DIR__, "packages", "VirtualExecutionFixture")
 const PASS_JOB = WarmTestRunner.TestJob(path = joinpath(FIXTURE_ROOT, "test", "pass.jl"), name = "pass.jl")
 const FAIL_JOB = WarmTestRunner.TestJob(path = joinpath(FIXTURE_ROOT, "test", "fail.jl"), name = "fail.jl")
 
@@ -635,6 +636,71 @@ end
                 finally
                     WarmTestRunner.stop()
                 end
+            end
+        end
+    end
+end
+
+@testset "public run executes selected included files through runtests" begin
+    mktempdir() do tmp
+        withenv("WARMTESTRUNNER_HOME" => tmp) do
+            summary = try
+                WarmTestRunner.run(
+                    pkgroot = VIRTUAL_FIXTURE_ROOT,
+                    tests = ["selection.jl"],
+                    jobs = 1,
+                    use_revise = false,
+                    fresh = true,
+                )
+            catch err
+                err
+            end
+
+            @test summary isa WarmTestRunner.RunSummary
+            if summary isa WarmTestRunner.RunSummary
+                @test getfield.(summary.results, :status) == [:passed]
+                @test only(summary.results).path == "test/runtests.jl"
+                @test occursin("selected testset", only(summary.results).stdout)
+                @test occursin("other testset", only(summary.results).stdout)
+                @test !occursin("failure testset", only(summary.results).stdout)
+            end
+
+            try
+                WarmTestRunner.stop(pkgroot = VIRTUAL_FIXTURE_ROOT)
+                WarmTestRunner.wait_for_record_gone(VIRTUAL_FIXTURE_ROOT)
+            catch
+            end
+        end
+    end
+end
+
+@testset "public run accepts named testset selectors" begin
+    mktempdir() do tmp
+        withenv("WARMTESTRUNNER_HOME" => tmp) do
+            summary = try
+                WarmTestRunner.run(
+                    pkgroot = VIRTUAL_FIXTURE_ROOT,
+                    testsets = ["selected testset"],
+                    jobs = 1,
+                    use_revise = false,
+                    fresh = true,
+                )
+            catch err
+                err
+            end
+
+            @test summary isa WarmTestRunner.RunSummary
+            if summary isa WarmTestRunner.RunSummary
+                @test getfield.(summary.results, :status) == [:passed]
+                @test occursin("selected testset", only(summary.results).stdout)
+                @test !occursin("other testset", only(summary.results).stdout)
+                @test isempty(only(summary.results).diagnostics)
+            end
+
+            try
+                WarmTestRunner.stop(pkgroot = VIRTUAL_FIXTURE_ROOT)
+                WarmTestRunner.wait_for_record_gone(VIRTUAL_FIXTURE_ROOT)
+            catch
             end
         end
     end

@@ -277,6 +277,14 @@ function build_file_entry_plans(
 )
     jobs = discover_tests(cfg.pkgroot)
     files = String[abspath(job.path) for job in jobs]
+    for name in selected_test_names
+        isabspath(name) && isfile(name) && push!(files, abspath(name))
+    end
+    for pair in Iterators.flatten((selected_line_patterns, selected_expression_patterns))
+        file = first(pair)
+        isabspath(file) && isfile(file) && push!(files, abspath(file))
+    end
+    unique!(files)
     testdir = joinpath(cfg.pkgroot, "test")
     filemap = selectable_file_map(files, testdir)
 

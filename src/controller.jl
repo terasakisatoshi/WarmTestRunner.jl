@@ -48,6 +48,40 @@ function build_jobs(
     return explicit_jobs
 end
 
+function plans_to_jobs(cfg::RunnerConfig, plans::AbstractVector{<:ExecutionPlan})
+    return [
+        TestJob(
+            path = plan.entryfile,
+            name = basename(plan.entryfile),
+            plan = plan,
+        )
+        for plan in plans
+    ]
+end
+
+function build_plan_jobs(
+    cfg::RunnerConfig;
+    tests = nothing,
+    testsets = nothing,
+    line_patterns = nothing,
+    expression_patterns = nothing,
+    changed_only::Bool = false,
+    rerun_failed::Bool = false,
+    last_failed::AbstractVector{<:AbstractString} = String[],
+)
+    plans = build_execution_plans(
+        cfg;
+        tests,
+        testsets,
+        line_patterns,
+        expression_patterns,
+        changed_only,
+        rerun_failed,
+        last_failed,
+    )
+    return plans_to_jobs(cfg, plans)
+end
+
 function start_worker_pool(cfg::RunnerConfig)
     workers = [start_worker(cfg; id = i) for i in 1:cfg.jobs]
     try
@@ -205,7 +239,7 @@ function schedule_jobs!(
         if maybe_result === nothing
             job = jobs[idx]
             ordered_results[idx] = TestResult(
-                path = result_path(cfg, job.path),
+                path = job.plan === nothing ? result_path(cfg, job.path) : job.plan.label,
                 status = :skipped,
                 elapsed = 0.0,
                 worker_id = nothing,
@@ -471,9 +505,12 @@ function handle_request!(state::ControllerState, request)
             previous_failed = lock(state.lock) do
                 copy(state.status.last_failed)
             end
-            build_jobs(
+            build_plan_jobs(
                 state.cfg;
                 tests = request_payload(request, :tests, String[]),
+                testsets = request_payload(request, :testsets, nothing),
+                line_patterns = request_payload(request, :line_patterns, nothing),
+                expression_patterns = request_payload(request, :expression_patterns, nothing),
                 changed_only = request_payload(request, :changed_only, false),
                 rerun_failed = request_payload(request, :rerun_failed, false),
                 last_failed = previous_failed,

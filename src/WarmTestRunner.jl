@@ -68,9 +68,22 @@ function validate_output_format(output_format::Symbol)
     throw(ArgumentError("output_format must be :text or :json"))
 end
 
-function run(; tests = String[], quickfail::Bool = false, changed_only::Bool = false, rerun_failed::Bool = false, fresh::Bool = false, retry_crashed::Bool = true, output_format::Symbol = :text, kwargs...)
+function run(;
+    tests = nothing,
+    testsets = nothing,
+    line_patterns = nothing,
+    expression_patterns = nothing,
+    quickfail::Bool = false,
+    changed_only::Bool = false,
+    rerun_failed::Bool = false,
+    fresh::Bool = false,
+    retry_crashed::Bool = true,
+    output_format::Symbol = :text,
+    kwargs...,
+)
     validate_output_format(output_format)
-    !isempty(tests) && changed_only && throw(ArgumentError("changed_only cannot be combined with explicit tests"))
+    tests_provided = tests !== nothing && !isempty(tests)
+    tests_provided && changed_only && throw(ArgumentError("changed_only cannot be combined with explicit tests"))
     changed_only && rerun_failed && throw(ArgumentError("changed_only cannot be combined with rerun_failed"))
     cfg = make_config(; kwargs...)
     changed_only && ensure_changed_only_controller!(cfg.pkgroot)
@@ -82,7 +95,10 @@ function run(; tests = String[], quickfail::Bool = false, changed_only::Bool = f
         cfg.pkgroot,
         (
             cmd = :run,
-            tests = String.(tests),
+            tests = tests,
+            testsets = testsets,
+            line_patterns = line_patterns,
+            expression_patterns = expression_patterns,
             quickfail = quickfail,
             changed_only = changed_only,
             rerun_failed = rerun_failed,
