@@ -1,3 +1,5 @@
+using JuliaSyntax: JuliaSyntax as JS
+
 const WARMTEST_TAG_SCAN_LINES = 5
 const WARMTEST_DIRECTIVE_PREFIX = "# warmtest:"
 const WARMTEST_EXCLUDED_TEST_FILES = Set(["runtests.jl", "warmtest_bootstrap.jl"])
@@ -89,4 +91,104 @@ function discover_changed_tests(pkgroot::AbstractString)
         job for job in discovered
         if normpath(relpath(job.path, pkgroot)) in changed_tests
     ]
+end
+
+function static_include_paths(text::AbstractString; filename::AbstractString = "none")
+    stream = JS.ParseStream(text)
+    JS.parse!(stream; rule = :all)
+    isempty(stream.diagnostics) || return String[]
+    top = JS.build_tree(JS.SyntaxNode, stream; filename)
+    paths = String[]
+    for index in 1:JS.numchildren(top)
+        node = top[index]
+        collect_static_include_paths!(paths, node)
+    end
+    return paths
+end
+
+function collect_static_include_paths!(paths::Vector{String}, node::JS.SyntaxNode)
+    expr = try
+        Expr(node)
+    catch
+        return paths
+    end
+    collect_static_include_paths!(paths, expr)
+    return paths
+end
+
+function collect_static_include_paths!(paths::Vector{String}, @nospecialize(expr))
+    if is_static_include_call(expr)
+        push!(paths, last(expr.args))
+        return paths
+    end
+    expr isa Expr || return paths
+    is_static_executable_container(expr) || return paths
+    for arg in expr.args
+        collect_static_include_paths!(paths, arg)
+    end
+    return paths
+end
+
+function is_static_executable_container(@nospecialize(expr))
+    expr isa Expr || return false
+    expr.head in (:block, :module) && return true
+    return is_static_testset_macrocall(expr)
+end
+
+function is_static_testset_macrocall(@nospecialize(expr))
+    Meta.isexpr(expr, :macrocall) || return false
+    isempty(expr.args) && return false
+    macro_name = first(expr.args)
+    macro_name == Symbol("@testset") && return true
+    return macro_name isa GlobalRef && macro_name.name == Symbol("@testset")
+end
+
+function is_nonexecuted_static_include_container(@nospecialize(expr))
+    expr isa Expr || return false
+    expr.head in (:function, :macro, :(->), :quote) && return true
+    return is_short_function_definition(expr)
+end
+
+function is_short_function_definition(@nospecialize(expr))
+    Meta.isexpr(expr, :(=), 2) || return false
+    return is_short_function_lhs(first(expr.args))
+end
+
+function is_short_function_lhs(@nospecialize(lhs))
+    lhs isa Expr || return false
+    lhs.head == :call && return true
+    if lhs.head in (:where, :(::)) && !isempty(lhs.args)
+        return is_short_function_lhs(first(lhs.args))
+    end
+    return false
+end
+
+function is_static_include_call(@nospecialize(expr))
+    Meta.isexpr(expr, :call) || return false
+    length(expr.args) >= 2 || return false
+    last(expr.args) isa String || return false
+    callee = first(expr.args)
+    callee == :include && return true
+    return callee == :(Base.include)
+end
+
+function static_included_files(entryfile::AbstractString)
+    entry = abspath(entryfile)
+    seen = Set{String}()
+    ordered = String[]
+
+    function visit(path::String)
+        path in seen && return
+        isfile(path) || return
+        push!(seen, path)
+        push!(ordered, path)
+        text = read(path, String)
+        for included_path in static_include_paths(text; filename = path)
+            child = normpath(joinpath(dirname(path), included_path))
+            visit(child)
+        end
+    end
+
+    visit(entry)
+    return ordered
 end

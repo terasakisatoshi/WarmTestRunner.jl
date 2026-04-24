@@ -11,24 +11,25 @@ Current state:
 
 - The daemon-backed MVP is implemented and passing the package test suite.
 - The full product described in `SPEC.md` is not complete yet.
-- The implemented scope matches the MVP plan in
-  `docs/superpowers/plans/2026-04-21-warmtestrunner-mvp.md`, the follow-up
-  `changed_only` work, and a round of hardening after whole-system review.
+- The implemented scope includes the daemon MVP, `changed_only`, Revise-by-default
+  bootstrap, and the TestRunner-style virtual execution backend.
 
 Practical summary:
 
 - `serve`, `run`, `status`, and `stop` work.
 - A persistent controller process owns a warm `Malt` worker pool.
-- Test files run inside shared worker-local modules inside reused workers.
-- File-level parallel scheduling, output capture, crash recovery, and `quickfail` work.
+- Tests run in each worker's `Main` through `ExecutionPlan`s. `test/runtests.jl` is the
+  preferred suite entry when present.
+- File/testset/line/expression selection, output capture, crash recovery, and
+  `quickfail` work.
 - `changed_only` is implemented as a runtime selection flag.
 - `watch()` is implemented for debounced source/test path monitoring.
 - `output_format = :json` is implemented for machine-readable run results.
 - `use_revise` defaults to `true` and loads `Revise.jl` during worker bootstrap.
 - When Git change detection is unavailable or the package is not in a usable Git repo, changed-only selection falls back to the full discovered test set.
 - Several "full spec" features are still intentionally deferred.
-- The next highest-leverage public API gap is richer test filtering beyond explicit
-  `tests`.
+- The next highest-leverage public API gap is richer filtering beyond explicit file,
+  testset, line, and expression selectors.
 
 ## What Is Implemented
 
@@ -37,7 +38,7 @@ Practical summary:
 Implemented:
 
 - `serve(; pkgroot, jobs, threads_per_worker, use_testenv, preload_package, startup_file, ...)`
-- `run(; tests = String[], quickfail = false, changed_only = false, rerun_failed = false, fresh = false, retry_crashed = true, output_format = :text, kwargs...)`
+- `run(; tests = nothing, testsets = nothing, line_patterns = nothing, expression_patterns = nothing, quickfail = false, changed_only = false, rerun_failed = false, fresh = false, retry_crashed = true, output_format = :text, kwargs...)`
 - `watch(; paths = ["src", "test"], debounce_seconds = 0.5, changed_only = true, kwargs...)`
 - `status(; pkgroot = pwd())`
 - `stop(; pkgroot = pwd())`
@@ -45,16 +46,22 @@ Implemented:
 Current behavior:
 
 - `serve()` starts or reuses a daemon for the package root.
-- `run()` connects to the daemon, discovers tests when `tests == []`, and returns a
-  structured `RunSummary`.
+- `run()` connects to the daemon, builds execution plans, and returns a structured
+  `RunSummary`. Public `tests = String[]` is treated the same as omitting `tests`.
+- `run()` uses `test/runtests.jl` as the preferred suite entry. File selections execute
+  through that entry when the selected file is reachable from it.
+- `run(...; tests = [...])` reports selected files as result units even though execution
+  still goes through the suite entry.
+- `run(...; testsets = [...])`, `run(...; line_patterns = [...])`, and
+  `run(...; expression_patterns = [...])` are implemented.
 - `run(...; output_format = :json)` returns a JSON string preserving summary counts and
-  per-file diagnostics.
+  structured diagnostics.
 - `run(...; changed_only = true)` selects changed tests with the implemented coarse
   heuristic, including the `src/` fallback to the full discovered set.
 - `run(...; changed_only = true)` also falls back to the full discovered set when Git
   change detection is unavailable or the package is not in a usable Git repo.
-- `run(...; rerun_failed = true)` reruns only the previously failing files recorded for
-  the daemon session or package root.
+- `run(...; rerun_failed = true)` reruns only the previously failing result units
+  recorded for the daemon session or package root.
 - `run(...; rerun_failed = true, tests = [...])` filters the explicit test list down to
   the previously failing files while preserving the explicit order.
 - `run(...; rerun_failed = true)` returns an empty `RunSummary` when there is no recorded
@@ -89,9 +96,11 @@ Implemented:
 - Worker bootstrap with package/test environment activation
 - Default `Revise.jl` loading during worker bootstrap unless `use_revise = false`
 - Optional bootstrap hook via `test/warmtest_bootstrap.jl`
-- Per-test-file execution in a shared worker-local module
-- File discovery under `test/`
-- Exclusion of `test/runtests.jl` and `test/warmtest_bootstrap.jl`
+- TestRunner-style virtual execution in worker `Main`
+- `test/runtests.jl` suite-entry planning
+- include interception for selected included files
+- File discovery fallback under `test/` when no `test/runtests.jl` exists
+- Exclusion of `test/warmtest_bootstrap.jl` from discovered file-entry tests
 - Tag parsing for `# warmtest: tags=...`
 - Output capture and result classification
 - Worker crash detection and replacement
@@ -105,6 +114,7 @@ Implemented:
 - changed-only fallback when Git diff data is unavailable
 - Debounced watch mode over source/test paths
 - Machine-readable JSON result serialization
+- Structured diagnostics for failures, errors, parse errors, and setup errors
 
 ### Configuration Actually Honored
 
@@ -151,16 +161,28 @@ The current test suite covers:
 - active-run `stop()`
 - public `watch()`
 - `output_format = :json`
+- virtual execution through `test/runtests.jl`
+- selected included files
+- named testset, line, and expression selectors
+- ambiguous exported module names under worker `Main`
 
-Latest verification command:
+Latest verification commands:
 
 ```bash
-julia --project=. --startup-file=no -e 'include("test/runtests.jl")'
+julia --project=. --startup-file=no -e 'using Pkg; Pkg.test()'
+julia --project=. --startup-file=no -e 'include("test/execution_planning.jl")'
+julia --project=. --startup-file=no -e 'include("test/controller_daemon.jl")'
+julia --project=. --startup-file=no -e 'include("test/worker_single.jl")'
+julia --project=. --startup-file=no examples/smoke_test.jl
 ```
 
 Latest result:
 
-- full suite passed on 2026-04-23
+- full package test suite passed on 2026-04-24
+- targeted backend/controller/worker suites passed on 2026-04-24
+- external Tensor4all validation passed on 2026-04-24:
+  `test/api/skeleton_alignment.jl` ran through WarmTestRunner with selected-file result
+  unit `test/api/skeleton_alignment.jl`
 
 ## Deferred From The Full Spec
 
@@ -170,7 +192,7 @@ Not implemented yet:
 - `seed`
 - broader Revise correctness guarantees beyond loading Revise during bootstrap
 - full CLI wrapper layer beyond `julia -e 'using WarmTestRunner; ...'`
-- richer filtering modes beyond explicit `tests`
+- tag and substring filtering modes
 - complete `Pkg.test()`-style compatibility
 
 ## Known Design Differences Or Constraints
@@ -180,7 +202,8 @@ Compared with the broader spec / earlier discussion:
 - Reusing an existing daemon with incompatible kwargs raises `ArgumentError` instead of
   silently reusing it.
 - `stop()` is optimized for prompt acknowledgment, not synchronous teardown completion.
-- Soft isolation is the model: shared worker-local test module, persistent worker per session.
+- Soft isolation is the model: persistent worker `Main`, with `fresh=true` as the reset
+  point.
 - This is a development-time runner, not a replacement for final `Pkg.test()` checks.
 
 ## Rough Completion Assessment

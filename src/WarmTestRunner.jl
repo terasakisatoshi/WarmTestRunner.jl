@@ -6,6 +6,8 @@ using Test
 include("types.jl")
 include("config.jl")
 include("discovery.jl")
+include("execution.jl")
+include("virtual_execution.jl")
 include("results.jl")
 include("sandbox.jl")
 include("worker.jl")
@@ -61,16 +63,42 @@ function ensure_retry_crashed_controller!(pkgroot::AbstractString)
     return ensure_protocol_controller!(pkgroot, RETRY_CRASHED_PROTOCOL_VERSION)
 end
 
+function ensure_execution_plans_controller!(pkgroot::AbstractString)
+    return ensure_protocol_controller!(pkgroot, EXECUTION_PLANS_PROTOCOL_VERSION)
+end
+
 function validate_output_format(output_format::Symbol)
     output_format in (:text, :json) && return output_format
     throw(ArgumentError("output_format must be :text or :json"))
 end
 
-function run(; tests = String[], quickfail::Bool = false, changed_only::Bool = false, rerun_failed::Bool = false, fresh::Bool = false, retry_crashed::Bool = true, output_format::Symbol = :text, kwargs...)
+function normalize_public_tests_selector(tests)
+    tests === nothing && return nothing
+    applicable(iterate, tests) || throw(ArgumentError("tests selection must be a collection"))
+    isempty(tests) && return nothing
+    return tests
+end
+
+function run(;
+    tests = nothing,
+    testsets = nothing,
+    line_patterns = nothing,
+    expression_patterns = nothing,
+    quickfail::Bool = false,
+    changed_only::Bool = false,
+    rerun_failed::Bool = false,
+    fresh::Bool = false,
+    retry_crashed::Bool = true,
+    output_format::Symbol = :text,
+    kwargs...,
+)
     validate_output_format(output_format)
-    !isempty(tests) && changed_only && throw(ArgumentError("changed_only cannot be combined with explicit tests"))
+    tests = normalize_public_tests_selector(tests)
+    tests_provided = tests !== nothing
+    tests_provided && changed_only && throw(ArgumentError("changed_only cannot be combined with explicit tests"))
     changed_only && rerun_failed && throw(ArgumentError("changed_only cannot be combined with rerun_failed"))
     cfg = make_config(; kwargs...)
+    ensure_execution_plans_controller!(cfg.pkgroot)
     changed_only && ensure_changed_only_controller!(cfg.pkgroot)
     rerun_failed && ensure_rerun_failed_controller!(cfg.pkgroot)
     fresh && ensure_fresh_controller!(cfg.pkgroot)
@@ -80,7 +108,10 @@ function run(; tests = String[], quickfail::Bool = false, changed_only::Bool = f
         cfg.pkgroot,
         (
             cmd = :run,
-            tests = String.(tests),
+            tests = tests,
+            testsets = testsets,
+            line_patterns = line_patterns,
+            expression_patterns = expression_patterns,
             quickfail = quickfail,
             changed_only = changed_only,
             rerun_failed = rerun_failed,

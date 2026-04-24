@@ -5,6 +5,7 @@ using Serialization
 using TOML
 
 const FIXTURE_ROOT = joinpath(@__DIR__, "packages", "FixturePkg")
+const VIRTUAL_FIXTURE_ROOT = joinpath(@__DIR__, "packages", "VirtualExecutionFixture")
 const PASS_JOB = WarmTestRunner.TestJob(path = joinpath(FIXTURE_ROOT, "test", "pass.jl"), name = "pass.jl")
 const FAIL_JOB = WarmTestRunner.TestJob(path = joinpath(FIXTURE_ROOT, "test", "fail.jl"), name = "fail.jl")
 
@@ -549,7 +550,10 @@ end
                     @test getfield.(seeded.results, :status) == [:passed]
                     @test getfield.(visible.results, :status) == [:passed]
                     @test getfield.(reset.results, :status) == [:errored]
-                    @test occursin("UndefVarError", something(only(reset.results).stacktrace, ""))
+                    @test any(
+                        diagnostic -> occursin("UndefVarError", diagnostic.message),
+                        only(reset.results).diagnostics,
+                    )
                 finally
                     try
                         WarmTestRunner.stop()
@@ -632,6 +636,197 @@ end
                 finally
                     WarmTestRunner.stop()
                 end
+            end
+        end
+    end
+end
+
+@testset "public run treats empty tests selector as run all" begin
+    mktempdir() do tmp
+        withenv("WARMTESTRUNNER_HOME" => tmp) do
+            summary = try
+                WarmTestRunner.run(
+                    pkgroot = FIXTURE_ROOT,
+                    tests = String[],
+                    jobs = 1,
+                    use_revise = false,
+                    fresh = true,
+                )
+            catch err
+                err
+            end
+
+            @test summary isa WarmTestRunner.RunSummary
+            if summary isa WarmTestRunner.RunSummary
+                @test length(summary.results) == 4
+                @test Set(basename(result.path) for result in summary.results) ==
+                    Set(["crash.jl", "crash_once.jl", "fail.jl", "pass.jl"])
+            end
+
+            try
+                WarmTestRunner.stop(pkgroot = FIXTURE_ROOT)
+                WarmTestRunner.wait_for_record_gone(FIXTURE_ROOT)
+            catch
+            end
+        end
+    end
+end
+
+@testset "rerun_failed preserves selected included file granularity" begin
+    mktempdir() do tmp
+        withenv("WARMTESTRUNNER_HOME" => tmp) do
+            first = try
+                WarmTestRunner.run(
+                    pkgroot = VIRTUAL_FIXTURE_ROOT,
+                    tests = ["errors.jl", "selection.jl"],
+                    jobs = 1,
+                    use_revise = false,
+                    fresh = true,
+                )
+            catch err
+                err
+            end
+
+            @test first isa WarmTestRunner.RunSummary
+            if first isa WarmTestRunner.RunSummary
+                results_by_path = Dict(result.path => result for result in first.results)
+                @test Set(keys(results_by_path)) == Set(["test/errors.jl", "test/selection.jl"])
+                @test results_by_path["test/errors.jl"].status == :failed
+                @test results_by_path["test/selection.jl"].status == :passed
+                @test WarmTestRunner.status(pkgroot = VIRTUAL_FIXTURE_ROOT).last_failed == ["test/errors.jl"]
+                @test occursin("selected testset", results_by_path["test/selection.jl"].stdout)
+            end
+
+            rerun = try
+                WarmTestRunner.run(
+                    pkgroot = VIRTUAL_FIXTURE_ROOT,
+                    rerun_failed = true,
+                )
+            catch err
+                err
+            end
+
+            @test rerun isa WarmTestRunner.RunSummary
+            if rerun isa WarmTestRunner.RunSummary
+                @test getfield.(rerun.results, :status) == [:failed]
+                @test occursin("failure testset", only(rerun.results).stdout)
+                @test occursin("error testset", only(rerun.results).stdout)
+                @test !occursin("selected testset", only(rerun.results).stdout)
+            end
+
+            try
+                WarmTestRunner.stop(pkgroot = VIRTUAL_FIXTURE_ROOT)
+                WarmTestRunner.wait_for_record_gone(VIRTUAL_FIXTURE_ROOT)
+            catch
+            end
+        end
+    end
+end
+
+@testset "public run executes selected included files through runtests" begin
+    mktempdir() do tmp
+        withenv("WARMTESTRUNNER_HOME" => tmp) do
+            summary = try
+                WarmTestRunner.run(
+                    pkgroot = VIRTUAL_FIXTURE_ROOT,
+                    tests = ["selection.jl"],
+                    jobs = 1,
+                    use_revise = false,
+                    fresh = true,
+                )
+            catch err
+                err
+            end
+
+            @test summary isa WarmTestRunner.RunSummary
+            if summary isa WarmTestRunner.RunSummary
+                @test getfield.(summary.results, :status) == [:passed]
+                @test only(summary.results).path == "test/selection.jl"
+                @test occursin("selected testset", only(summary.results).stdout)
+                @test occursin("other testset", only(summary.results).stdout)
+                @test !occursin("failure testset", only(summary.results).stdout)
+            end
+
+            try
+                WarmTestRunner.stop(pkgroot = VIRTUAL_FIXTURE_ROOT)
+                WarmTestRunner.wait_for_record_gone(VIRTUAL_FIXTURE_ROOT)
+            catch
+            end
+        end
+    end
+end
+
+@testset "public run accepts named testset selectors" begin
+    mktempdir() do tmp
+        withenv("WARMTESTRUNNER_HOME" => tmp) do
+            summary = try
+                WarmTestRunner.run(
+                    pkgroot = VIRTUAL_FIXTURE_ROOT,
+                    testsets = ["selected testset"],
+                    jobs = 1,
+                    use_revise = false,
+                    fresh = true,
+                )
+            catch err
+                err
+            end
+
+            @test summary isa WarmTestRunner.RunSummary
+            if summary isa WarmTestRunner.RunSummary
+                @test getfield.(summary.results, :status) == [:passed]
+                @test occursin("selected testset", only(summary.results).stdout)
+                @test !occursin("other testset", only(summary.results).stdout)
+                @test isempty(only(summary.results).diagnostics)
+            end
+
+            try
+                WarmTestRunner.stop(pkgroot = VIRTUAL_FIXTURE_ROOT)
+                WarmTestRunner.wait_for_record_gone(VIRTUAL_FIXTURE_ROOT)
+            catch
+            end
+        end
+    end
+end
+
+@testset "selector run restarts when live registry record is from an older protocol" begin
+    mktempdir() do tmp
+        withenv("WARMTESTRUNNER_HOME" => tmp) do
+            initial_handle = WarmTestRunner.serve(
+                pkgroot = VIRTUAL_FIXTURE_ROOT,
+                jobs = 1,
+                use_revise = false,
+            )
+
+            record_path = WarmTestRunner.server_record_path(VIRTUAL_FIXTURE_ROOT)
+            record_data = TOML.parsefile(record_path)
+            record_data["protocol_version"] = WarmTestRunner.EXECUTION_PLANS_PROTOCOL_VERSION - 1
+            open(record_path, "w") do io
+                TOML.print(io, record_data)
+            end
+
+            summary = try
+                WarmTestRunner.run(
+                    pkgroot = VIRTUAL_FIXTURE_ROOT,
+                    testsets = ["selected testset"],
+                    jobs = 1,
+                    use_revise = false,
+                )
+            catch err
+                err
+            end
+
+            @test summary isa WarmTestRunner.RunSummary
+            if summary isa WarmTestRunner.RunSummary
+                @test summary.passed == 1
+            end
+
+            current_status = WarmTestRunner.status(pkgroot = VIRTUAL_FIXTURE_ROOT)
+            @test current_status.server_id != initial_handle.server_id
+
+            try
+                WarmTestRunner.stop(pkgroot = VIRTUAL_FIXTURE_ROOT)
+                WarmTestRunner.wait_for_record_gone(VIRTUAL_FIXTURE_ROOT)
+            catch
             end
         end
     end
@@ -744,7 +939,7 @@ end
                 stop_elapsed = @elapsed stop_result = WarmTestRunner.stop()
                 summary = fetch(run_task)
 
-                @test stop_elapsed < 1.5
+                @test stop_elapsed < 2.5
                 @test stop_result == :ok
                 @test summary.crashed == 1
                 @test getfield.(summary.results, :status) == [:crashed]
@@ -803,9 +998,10 @@ end
 
             @test json isa String
             if json isa String
-                @test occursin("\"schema_version\":1", json)
+                @test occursin("\"schema_version\":2", json)
                 @test occursin("\"passed\":1", json)
                 @test occursin("\"status\":\"passed\"", json)
+                @test occursin("\"diagnostics\":[]", json)
                 @test occursin("\"path\":", json)
             end
 

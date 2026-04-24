@@ -168,7 +168,10 @@ end
                         @test getfield.(visible.results, :status) == [:passed]
                         @test getfield.(crashed.results, :status) == [:crashed]
                         @test getfield.(cleared.results, :status) == [:errored]
-                        @test occursin("UndefVarError", something(only(cleared.results).stacktrace, ""))
+                        @test any(
+                            diagnostic -> occursin("UndefVarError", diagnostic.message),
+                            only(cleared.results).diagnostics,
+                        )
                     finally
                         WarmTestRunner.stop()
                     end

@@ -58,10 +58,10 @@ end
 function classify_exception(err, bt)
     if err isa LoadError
         inner = err.error
-        inner isa Test.TestSetException && return (:failed, sprint(showerror, inner), sprint(showerror, err, bt))
+        inner isa Union{Test.TestSetException,Test.FallbackTestSetException} && return (:failed, sprint(showerror, inner), sprint(showerror, err, bt))
         return (:errored, sprint(showerror, err), sprint(showerror, err, bt))
     end
-    err isa Test.TestSetException && return (:failed, sprint(showerror, err), sprint(showerror, err, bt))
+    err isa Union{Test.TestSetException,Test.FallbackTestSetException} && return (:failed, sprint(showerror, err), sprint(showerror, err, bt))
     return (:errored, sprint(showerror, err), sprint(showerror, err, bt))
 end
 

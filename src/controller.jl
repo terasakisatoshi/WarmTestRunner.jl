@@ -48,6 +48,84 @@ function build_jobs(
     return explicit_jobs
 end
 
+function plans_to_jobs(cfg::RunnerConfig, plans::AbstractVector{<:ExecutionPlan})
+    return [
+        TestJob(
+            path = plan.entryfile,
+            name = basename(plan.entryfile),
+            plan = plan,
+        )
+        for plan in plans
+    ]
+end
+
+function build_plan_jobs(
+    cfg::RunnerConfig;
+    tests = nothing,
+    testsets = nothing,
+    line_patterns = nothing,
+    expression_patterns = nothing,
+    changed_only::Bool = false,
+    rerun_failed::Bool = false,
+    last_failed::AbstractVector{<:AbstractString} = String[],
+)
+    plans = build_execution_plans(
+        cfg;
+        tests,
+        testsets,
+        line_patterns,
+        expression_patterns,
+        changed_only,
+        rerun_failed,
+        last_failed,
+    )
+    return plans_to_jobs(cfg, plans)
+end
+
+function absolute_diagnostic_path(cfg::RunnerConfig, path::AbstractString)
+    isempty(path) && return ""
+    return normpath(isabspath(path) ? String(path) : joinpath(cfg.pkgroot, path))
+end
+
+function failed_selection_paths_from_diagnostics(
+    cfg::RunnerConfig,
+    selections::AbstractVector{<:TestSelection},
+    diagnostics::AbstractVector{<:TestDiagnostic},
+)
+    failed_files = Set{String}()
+    for diagnostic in diagnostics
+        path = absolute_diagnostic_path(cfg, diagnostic.file)
+        isempty(path) || push!(failed_files, path)
+    end
+    isempty(failed_files) && return String[]
+
+    paths = String[]
+    for selection in selections
+        selection_path = normpath(abspath(selection.file))
+        selection_path in failed_files || continue
+        push!(paths, result_path(cfg, selection.file))
+    end
+    return unique!(paths)
+end
+
+function failed_paths_for_job(cfg::RunnerConfig, job::TestJob, result::TestResult)
+    result.status in (:failed, :errored, :crashed) || return String[]
+    plan = job.plan
+    plan === nothing && return String[result.path]
+    if plan.run_all || isempty(plan.selections)
+        return String[plan.label]
+    end
+
+    diagnostic_paths = failed_selection_paths_from_diagnostics(cfg, plan.selections, result.diagnostics)
+    isempty(diagnostic_paths) || return diagnostic_paths
+
+    paths = String[]
+    for selection in plan.selections
+        push!(paths, result_path(cfg, selection.file))
+    end
+    return unique!(paths)
+end
+
 function start_worker_pool(cfg::RunnerConfig)
     workers = [start_worker(cfg; id = i) for i in 1:cfg.jobs]
     try
@@ -205,7 +283,7 @@ function schedule_jobs!(
         if maybe_result === nothing
             job = jobs[idx]
             ordered_results[idx] = TestResult(
-                path = result_path(cfg, job.path),
+                path = job.plan === nothing ? result_path(cfg, job.path) : job.plan.label,
                 status = :skipped,
                 elapsed = 0.0,
                 worker_id = nothing,
@@ -437,7 +515,14 @@ function run_jobs_on_pool!(state::ControllerState, jobs::AbstractVector{<:TestJo
             state.cfg.pkgroot;
             state = state.stop_requested ? :stopping : :idle,
             running_jobs = 0,
-            last_failed = [result.path for result in summary.results if result.status in (:failed, :errored, :crashed)],
+            last_failed = reduce(
+                append!,
+                (
+                    failed_paths_for_job(state.cfg, job, result)
+                    for (job, result) in zip(jobs, summary.results)
+                );
+                init = String[],
+            ),
             last_success_at = successful_run ? time() : state.status.last_success_at,
         )
     end
@@ -471,9 +556,12 @@ function handle_request!(state::ControllerState, request)
             previous_failed = lock(state.lock) do
                 copy(state.status.last_failed)
             end
-            build_jobs(
+            build_plan_jobs(
                 state.cfg;
-                tests = request_payload(request, :tests, String[]),
+                tests = request_payload(request, :tests, nothing),
+                testsets = request_payload(request, :testsets, nothing),
+                line_patterns = request_payload(request, :line_patterns, nothing),
+                expression_patterns = request_payload(request, :expression_patterns, nothing),
                 changed_only = request_payload(request, :changed_only, false),
                 rerun_failed = request_payload(request, :rerun_failed, false),
                 last_failed = previous_failed,

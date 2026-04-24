@@ -9,11 +9,11 @@
 - 日々の編集とテストの反復: `WarmTestRunner.run()`
 - マージ前、リリース前、CI 相当の最終確認: `Pkg.test()`
 
-`WarmTestRunner.jl` は `Pkg.test()` の完全な置き換えではありません。worker プロセスは使い回され、同じ worker 上のテストファイルは worker-local な共有 test context を使います。厳密なクリーンルーム実行よりも反復速度を優先します。
+`WarmTestRunner.jl` は `Pkg.test()` の完全な置き換えではありません。worker プロセスは使い回され、各 worker の `Main` が warm な実行コンテキストとして残ります。厳密なクリーンルーム実行よりも反復速度を優先します。
 
 ## 必要条件
 
-- Julia 1.10 以上
+- Julia 1.12 以上
 - テスト対象パッケージの `Project.toml`
 - 通常の Julia テストファイルを置く `test/` ディレクトリ
 
@@ -74,7 +74,7 @@ WarmTestRunner.serve(jobs = 4)
 summary = WarmTestRunner.run()
 ```
 
-`run()` は `test/` 以下の `*.jl` を探索して実行します。ただし、テスト全体の入口として扱われる `test/runtests.jl` と、worker 起動時フックの `test/warmtest_bootstrap.jl` は自動探索から除外されます。
+`run()` は `test/runtests.jl` があればそれをテストスイートの入口として実行します。`tests = [...]` で一部のファイルを指定した場合も、到達可能な included file であれば `test/runtests.jl` を経由して、そのファイルのテストだけを選択実行します。`test/runtests.jl` がないパッケージでは `test/` 以下の `*.jl` をファイル単位で実行します。
 
 返り値は `RunSummary` です。
 
@@ -87,7 +87,7 @@ summary.skipped
 summary.results
 ```
 
-各テストファイルの結果は `summary.results` に入り、`status`, `stdout`, `stderr`, `exception_summary`, `stacktrace`, `elapsed` などを確認できます。
+各結果は `summary.results` に入り、`path`, `status`, `stdout`, `stderr`, `exception_summary`, `stacktrace`, `elapsed`, `diagnostics` などを確認できます。全体実行では通常 `test/runtests.jl` が結果単位になり、`tests = [...]` によるファイル選択では選択ファイルが結果単位になります。
 
 機械処理しやすい JSON 文字列が必要な場合は `output_format = :json` を指定します。
 
@@ -95,7 +95,7 @@ summary.results
 json = WarmTestRunner.run(output_format = :json)
 ```
 
-JSON には集計件数、合計実行時間、ファイルごとの `path`, `status`, `stdout`, `stderr`, `exception_summary`, `stacktrace`, `worker_id` が含まれます。
+JSON には集計件数、合計実行時間、結果ごとの `path`, `status`, `stdout`, `stderr`, `exception_summary`, `stacktrace`, `worker_id`, `diagnostics` が含まれます。
 
 コマンドラインから一部のテストだけを JSON で取得する例です。
 
@@ -118,7 +118,7 @@ julia --project=. -e 'using WarmTestRunner; WarmTestRunner.stop()'
 
 ## 一部のテストだけ実行する
 
-`tests` にファイル名を渡すと、そのファイルだけを実行します。相対パスは `test/` からの相対名として解釈されます。
+`tests` にファイル名を渡すと、そのファイルだけを実行します。相対パスは `test/` からの相対名として解釈されます。`test/runtests.jl` がある場合、指定ファイルは `test/runtests.jl` から到達可能である必要があります。
 
 ```julia
 WarmTestRunner.run(tests = ["foo.jl"])
@@ -131,8 +131,15 @@ WarmTestRunner.run(tests = ["unit/foo.jl", "unit/bar.jl"])
 WarmTestRunner.run(tests = ["/path/to/MyPkg/test/foo.jl"])
 ```
 
-現在の公開 API では、ファイル名の部分一致、正規表現、タグ include/exclude による絞り込みはまだ未実装です。
-その用途では、今は `tests = [...]`、`changed_only = true`、`rerun_failed = true` を使って対象を絞ってください。
+名前付き testset、行、式に基づく選択も指定できます。
+
+```julia
+WarmTestRunner.run(testsets = ["selected testset"])
+WarmTestRunner.run(line_patterns = ["foo.jl" => [12, 20]])
+WarmTestRunner.run(expression_patterns = ["foo.jl" => "selected testset"])
+```
+
+現在の公開 API では、ファイル名の部分一致、タグ include/exclude による絞り込みはまだ未実装です。その用途では、今は `tests = [...]`、`testsets = [...]`、`changed_only = true`、`rerun_failed = true` を使って対象を絞ってください。
 
 ## 失敗したらすぐ止める
 
@@ -194,7 +201,7 @@ WarmTestRunner.run(tests = ["foo.jl", "bar.jl"], rerun_failed = true)
 
 ## worker を作り直す
 
-warm な worker は実行間で状態を保持します。worker-local な共有 test context も保持されるため、グローバル状態の汚染や共有定義の持ち越しが疑わしい場合は、`fresh = true` で worker pool を作り直してからテストを実行できます。
+warm な worker は実行間で `Main` の状態を保持します。グローバル状態の汚染、定数や module の再定義、共有定義の持ち越しが疑わしい場合は、`fresh = true` で worker pool を作り直してからテストを実行できます。
 
 ```julia
 WarmTestRunner.run(fresh = true)
@@ -238,7 +245,7 @@ WarmTestRunner.stop()
 ENV["MY_TEST_MODE"] = "warm"
 ```
 
-このファイルは通常のテストファイルとしては自動実行されません。ここで作った状態は、その worker の共有 test context から参照される前提です。
+このファイルは通常のテストファイルとしては自動実行されません。ここで作った状態は、その worker の `Main` から参照される前提です。
 
 ## Revise 連携
 

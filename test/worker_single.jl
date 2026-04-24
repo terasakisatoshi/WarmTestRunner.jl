@@ -3,6 +3,7 @@ using Malt
 using WarmTestRunner
 
 const FIXTURE_ROOT = joinpath(@__DIR__, "packages", "FixturePkg")
+const VIRTUAL_FIXTURE_ROOT = joinpath(@__DIR__, "packages", "VirtualExecutionFixture")
 const PASS_JOB = WarmTestRunner.TestJob(path = joinpath(FIXTURE_ROOT, "test", "pass.jl"), name = "pass.jl")
 const FAIL_JOB = WarmTestRunner.TestJob(path = joinpath(FIXTURE_ROOT, "test", "fail.jl"), name = "fail.jl")
 
@@ -28,6 +29,7 @@ const FAIL_JOB = WarmTestRunner.TestJob(path = joinpath(FIXTURE_ROOT, "test", "f
         @test result.status == :passed
         @test result.worker_id == 1
         @test occursin("bootstrap hook loaded: true", result.stdout)
+        @test Malt.remote_eval_fetch(worker.proc, :(isdefined(Main, :WarmTestRunner))) === false
         @test worker.state == :idle
         @test worker.runs_completed == 1
 
@@ -40,6 +42,77 @@ const FAIL_JOB = WarmTestRunner.TestJob(path = joinpath(FIXTURE_ROOT, "test", "f
     finally
         WarmTestRunner.stop_worker!(worker)
         @test worker.state == :stopped
+    end
+end
+
+@testset "single malt worker executes virtual plans through runtests" begin
+    cfg = WarmTestRunner.make_config(pkgroot = VIRTUAL_FIXTURE_ROOT, jobs = 1, use_revise = false)
+    worker = WarmTestRunner.start_worker(cfg; id = 9)
+
+    try
+        WarmTestRunner.bootstrap_worker!(worker, cfg)
+        plan = only(WarmTestRunner.build_execution_plans(cfg; tests = ["selection.jl"]))
+        result = WarmTestRunner.run_test_in_worker!(
+            worker,
+            WarmTestRunner.TestJob(
+                path = plan.entryfile,
+                name = "test/runtests.jl",
+                plan = plan,
+            ),
+            cfg,
+        )
+        @test result.status == :passed
+        @test result.path == "test/selection.jl"
+        @test occursin("selected testset", result.stdout)
+        @test occursin("other testset", result.stdout)
+        @test !occursin("failure testset", result.stdout)
+        @test worker.runs_completed == 1
+    finally
+        WarmTestRunner.stop_worker!(worker)
+        @test worker.state == :stopped
+    end
+end
+
+@testset "single malt worker does not expose runner tooling to tests" begin
+    mktempdir() do tmp
+        pkgroot = joinpath(tmp, "ToolVisibilityFixture")
+        mkpath(joinpath(pkgroot, "src"))
+        mkpath(joinpath(pkgroot, "test"))
+        write(
+            joinpath(pkgroot, "Project.toml"),
+            """
+            name = "ToolVisibilityFixture"
+            uuid = "55555555-6666-7777-8888-999999999999"
+            version = "0.1.0"
+            """,
+        )
+        write(joinpath(pkgroot, "src", "ToolVisibilityFixture.jl"), "module ToolVisibilityFixture\nend\n")
+        testfile = joinpath(pkgroot, "test", "visibility.jl")
+        write(
+            testfile,
+            """
+            using Test
+
+            @testset "tool visibility" begin
+                @test !isdefined(@__MODULE__, :WarmTestRunner)
+                @test !isdefined(@__MODULE__, :Revise)
+            end
+            """,
+        )
+
+        cfg = WarmTestRunner.make_config(pkgroot = pkgroot, jobs = 1, use_testenv = false, preload_package = false)
+        worker = WarmTestRunner.start_worker(cfg; id = 10)
+        try
+            WarmTestRunner.bootstrap_worker!(worker, cfg)
+            result = WarmTestRunner.run_test_in_worker!(
+                worker,
+                WarmTestRunner.TestJob(path = testfile, name = "visibility.jl"),
+                cfg,
+            )
+            @test result.status == :passed
+        finally
+            WarmTestRunner.stop_worker!(worker)
+        end
     end
 end
 
@@ -137,7 +210,8 @@ end
     try
         WarmTestRunner.bootstrap_worker!(worker, cfg)
         @test worker.state == :idle
-        @test Malt.remote_eval_fetch(worker.proc, :(isdefined(Main, :Revise))) === true
+        @test Malt.remote_eval_fetch(worker.proc, :(isdefined(Main, :Revise))) === false
+        @test Malt.remote_eval_fetch(worker.proc, :(isdefined(Main.WarmTestRunnerWorkerRuntime, :Revise))) === true
         @test Malt.remote_eval_fetch(worker.proc, :(Main.WARMTEST_REVISE_LOADED)) === true
         @test Malt.remote_eval_fetch(worker.proc, :(Main.WARMTEST_ACTIVATION_STRATEGY)) == :testenv
     finally
@@ -180,14 +254,14 @@ end
             """
             __precompile__(false)
             module ReviseOrderFixture
-            const REVISE_WAS_LOADED_DURING_PRELOAD = isdefined(Main, :Revise)
+            const REVISE_WAS_LOADED_DURING_PRELOAD = isdefined(Main.WarmTestRunnerWorkerRuntime, :Revise)
             end
             """,
         )
         write(
             joinpath(pkgroot, "test", "warmtest_bootstrap.jl"),
             """
-            Core.eval(Main, :(WARMTEST_BOOTSTRAP_SAW_REVISE = isdefined(Main, :Revise)))
+            Core.eval(Main, :(WARMTEST_BOOTSTRAP_SAW_REVISE = isdefined(Main.WarmTestRunnerWorkerRuntime, :Revise)))
             Core.eval(Main, :(WARMTEST_PRELOAD_SAW_REVISE = ReviseOrderFixture.REVISE_WAS_LOADED_DURING_PRELOAD))
             """,
         )
