@@ -90,3 +90,24 @@ function discover_changed_tests(pkgroot::AbstractString)
         if normpath(relpath(job.path, pkgroot)) in changed_tests
     ]
 end
+
+function static_included_files(entryfile::AbstractString)
+    entry = abspath(entryfile)
+    seen = Set{String}()
+    ordered = String[]
+
+    function visit(path::String)
+        path in seen && return
+        push!(seen, path)
+        push!(ordered, path)
+        isfile(path) || return
+        text = read(path, String)
+        for matchobj in eachmatch(r"include\(\"([^\"]+)\"\)", text)
+            child = normpath(joinpath(dirname(path), matchobj.captures[1]))
+            visit(child)
+        end
+    end
+
+    visit(entry)
+    return ordered
+end
