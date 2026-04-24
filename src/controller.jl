@@ -25,7 +25,7 @@ function build_jobs(
 
     explicit_jobs = [
         TestJob(
-            path = isabspath(name) ? name : joinpath(cfg.pkgroot, "test", name),
+            path = job_path_from_test_name(cfg, name),
             name = basename(name),
         )
         for name in tests
@@ -34,9 +34,12 @@ function build_jobs(
     if rerun_failed
         isempty(last_failed) && return TestJob[]
         if isempty(tests)
-            return [TestJob(path = path, name = basename(path)) for path in last_failed]
+            return [
+                TestJob(path = job_path_from_recorded_result(cfg, path), name = basename(path))
+                for path in last_failed
+            ]
         end
-        failed_paths = Set(abspath.(last_failed))
+        failed_paths = Set(job_path_from_recorded_result(cfg, path) for path in last_failed)
         return [job for job in explicit_jobs if abspath(job.path) in failed_paths]
     end
 
@@ -202,7 +205,7 @@ function schedule_jobs!(
         if maybe_result === nothing
             job = jobs[idx]
             ordered_results[idx] = TestResult(
-                path = job.path,
+                path = result_path(cfg, job.path),
                 status = :skipped,
                 elapsed = 0.0,
                 worker_id = nothing,

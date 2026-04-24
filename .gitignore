@@ -2,3 +2,4 @@ extern
 docs/superpowers
 docs/test-reports
 .worktrees
+test/packages/*/Manifest.toml

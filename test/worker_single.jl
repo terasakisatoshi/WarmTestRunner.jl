@@ -18,7 +18,7 @@ const FAIL_JOB = WarmTestRunner.TestJob(path = joinpath(FIXTURE_ROOT, "test", "f
         WarmTestRunner.bootstrap_worker!(worker, cfg)
         @test worker.state == :idle
         @test worker.booted_at > 0
-        @test Malt.remote_eval_fetch(worker.proc, :(Main.WARMTEST_ACTIVATION_STRATEGY)) == :pkg_activate_fallback
+        @test Malt.remote_eval_fetch(worker.proc, :(Main.WARMTEST_ACTIVATION_STRATEGY)) == :testenv
 
         result = WarmTestRunner.run_test_in_worker!(
             worker,
@@ -59,6 +59,64 @@ end
     end
 end
 
+@testset "single malt worker activates test target extras for local packages" begin
+    mktempdir() do tmp
+        pkgroot = joinpath(tmp, "ExtraTargetFixture")
+        mkpath(joinpath(pkgroot, "src"))
+        mkpath(joinpath(pkgroot, "test"))
+
+        write(
+            joinpath(pkgroot, "Project.toml"),
+            """
+            name = "ExtraTargetFixture"
+            uuid = "33333333-4444-5555-6666-777777777777"
+            version = "0.1.0"
+
+            [extras]
+            Malt = "36869731-bdee-424d-aa32-cab38c994e3b"
+            Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+            [targets]
+            test = ["Malt", "Test"]
+            """,
+        )
+        write(
+            joinpath(pkgroot, "src", "ExtraTargetFixture.jl"),
+            """
+            module ExtraTargetFixture
+            end
+            """,
+        )
+        testfile = joinpath(pkgroot, "test", "extra_target.jl")
+        write(
+            testfile,
+            """
+            using Test
+
+            @testset "extra target visibility" begin
+                @test Base.find_package("Malt") !== nothing
+            end
+            """,
+        )
+
+        cfg = WarmTestRunner.make_config(pkgroot = pkgroot, jobs = 1)
+        worker = WarmTestRunner.start_worker(cfg; id = 8)
+
+        try
+            WarmTestRunner.bootstrap_worker!(worker, cfg)
+            result = WarmTestRunner.run_test_in_worker!(
+                worker,
+                WarmTestRunner.TestJob(path = testfile, name = "extra_target.jl"),
+                cfg,
+            )
+            @test result.status == :passed
+            @test Malt.remote_eval_fetch(worker.proc, :(Main.WARMTEST_ACTIVATION_STRATEGY)) == :testenv
+        finally
+            WarmTestRunner.stop_worker!(worker)
+        end
+    end
+end
+
 @testset "single malt worker respects threads_per_worker" begin
     cfg = WarmTestRunner.make_config(pkgroot = FIXTURE_ROOT, jobs = 1, threads_per_worker = 2)
     worker = WarmTestRunner.start_worker(cfg; id = 4)
@@ -81,7 +139,7 @@ end
         @test worker.state == :idle
         @test Malt.remote_eval_fetch(worker.proc, :(isdefined(Main, :Revise))) === true
         @test Malt.remote_eval_fetch(worker.proc, :(Main.WARMTEST_REVISE_LOADED)) === true
-        @test Malt.remote_eval_fetch(worker.proc, :(Main.WARMTEST_ACTIVATION_STRATEGY)) == :pkg_activate_fallback
+        @test Malt.remote_eval_fetch(worker.proc, :(Main.WARMTEST_ACTIVATION_STRATEGY)) == :testenv
     finally
         WarmTestRunner.stop_worker!(worker)
         @test worker.state == :stopped

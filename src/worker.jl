@@ -14,14 +14,21 @@ end
 
 function activation_expr(cfg::RunnerConfig)
     if cfg.use_testenv
+        package_name = package_name_from_project(cfg)
         return quote
-            # TestEnv.activate is the intended bootstrap path when requested, but it
-            # can reject an uninstalled local fixture package. Fall back to directly
-            # activating the package project so Task 4 can still exercise a real
-            # package checkout on a single worker.
             try
+                using Pkg
                 using TestEnv
-                TestEnv.activate($(cfg.pkgroot))
+                if $(package_name === nothing)
+                    Pkg.activate($(cfg.pkgroot); io = devnull)
+                    TestEnv.activate()
+                else
+                    mktempdir() do tmp
+                        Pkg.activate(tmp; io = devnull)
+                        Pkg.develop(Pkg.PackageSpec(path = $(cfg.pkgroot)); io = devnull)
+                        TestEnv.activate($(package_name))
+                    end
+                end
                 Core.eval(Main, :(WARMTEST_ACTIVATION_STRATEGY = :testenv))
                 Core.eval(Main, :(WARMTEST_ACTIVATION_FALLBACK_REASON = nothing))
             catch err
@@ -106,7 +113,7 @@ function bootstrap_worker!(worker::WorkerHandle, cfg::RunnerConfig)
     end
 end
 
-function run_test_in_worker!(worker::WorkerHandle, job::TestJob, ::RunnerConfig)
+function run_test_in_worker!(worker::WorkerHandle, job::TestJob, cfg::RunnerConfig)
     worker.state = :running
     context_name = QuoteNode(worker.context_module)
     try
@@ -179,7 +186,7 @@ function run_test_in_worker!(worker::WorkerHandle, job::TestJob, ::RunnerConfig)
         worker.state = :idle
         worker.runs_completed += 1
         return TestResult(
-            path = job.path,
+            path = result_path(cfg, job.path),
             status = payload.status,
             elapsed = payload.elapsed,
             stdout = payload.stdout,
@@ -191,7 +198,7 @@ function run_test_in_worker!(worker::WorkerHandle, job::TestJob, ::RunnerConfig)
     catch err
         worker.state = :crashed
         return TestResult(
-            path = job.path,
+            path = result_path(cfg, job.path),
             status = :crashed,
             elapsed = 0.0,
             exception_summary = sprint(showerror, err),

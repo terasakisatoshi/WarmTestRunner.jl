@@ -21,3 +21,23 @@ function make_config(; kwargs...)
     cfg.log_level == :info || throw(ArgumentError("log_level=$(cfg.log_level) is not implemented yet"))
     return cfg
 end
+
+function job_path_from_test_name(cfg::RunnerConfig, name::AbstractString)
+    return normpath(isabspath(name) ? String(name) : joinpath(cfg.pkgroot, "test", name))
+end
+
+function job_path_from_recorded_result(cfg::RunnerConfig, path::AbstractString)
+    isabspath(path) && return normpath(path)
+
+    pkgroot_relative = normpath(joinpath(cfg.pkgroot, path))
+    isfile(pkgroot_relative) && return pkgroot_relative
+
+    return normpath(joinpath(cfg.pkgroot, "test", path))
+end
+
+function result_path(cfg::RunnerConfig, path::AbstractString)
+    absolute_path = normpath(isabspath(path) ? String(path) : joinpath(cfg.pkgroot, path))
+    relative_path = relpath(absolute_path, cfg.pkgroot)
+    parts = splitpath(relative_path)
+    return !isempty(parts) && first(parts) == ".." ? absolute_path : relative_path
+end
