@@ -186,6 +186,73 @@ end
     end
 end
 
+@testset "inline scheduler preserves imported package bindings across files" begin
+    mktempdir() do tmp
+        importer_path = write_temp_test(
+            tmp,
+            "importer.jl",
+            """
+            using Test
+            using FixturePkg
+            @test FixturePkg.add1(1) == 2
+            """,
+        )
+        consumer_path = write_temp_test(
+            tmp,
+            "consumer.jl",
+            """
+            using Test
+            @test FixturePkg.add1(2) == 3
+            """,
+        )
+
+        cfg = WarmTestRunner.make_config(pkgroot = FIXTURE_ROOT, jobs = 1)
+        jobs = [
+            WarmTestRunner.TestJob(path = importer_path, name = "importer.jl"),
+            WarmTestRunner.TestJob(path = consumer_path, name = "consumer.jl"),
+        ]
+
+        summary = WarmTestRunner.run_jobs_inline(cfg, jobs)
+
+        @test getfield.(summary.results, :status) == [:passed, :passed]
+        @test summary.passed == 2
+    end
+end
+
+@testset "inline scheduler preserves helper definitions across files" begin
+    mktempdir() do tmp
+        helper_def_path = write_temp_test(
+            tmp,
+            "helper_def.jl",
+            """
+            using Test
+            using FixturePkg
+            shared_fixture_helper(x) = FixturePkg.add1(x)
+            @test shared_fixture_helper(1) == 2
+            """,
+        )
+        helper_use_path = write_temp_test(
+            tmp,
+            "helper_use.jl",
+            """
+            using Test
+            @test shared_fixture_helper(2) == 3
+            """,
+        )
+
+        cfg = WarmTestRunner.make_config(pkgroot = FIXTURE_ROOT, jobs = 1)
+        jobs = [
+            WarmTestRunner.TestJob(path = helper_def_path, name = "helper_def.jl"),
+            WarmTestRunner.TestJob(path = helper_use_path, name = "helper_use.jl"),
+        ]
+
+        summary = WarmTestRunner.run_jobs_inline(cfg, jobs)
+
+        @test getfield.(summary.results, :status) == [:passed, :passed]
+        @test summary.passed == 2
+    end
+end
+
 @testset "inline scheduler keeps healthy workers running after a crash" begin
     mktempdir() do tmp
         pass1_path = write_temp_test(
