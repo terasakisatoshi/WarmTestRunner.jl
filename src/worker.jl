@@ -1,6 +1,19 @@
 using Malt
 
-worker_context_name(id::Int) = Symbol("WarmTestContext_", id)
+const WORKER_RUNTIME_MODULE = :WarmTestRunnerWorkerRuntime
+
+function worker_runtime_setup_expr()
+    runtime_name = QuoteNode(WORKER_RUNTIME_MODULE)
+    runtime_source = "module $(WORKER_RUNTIME_MODULE)\nend\n"
+    return quote
+        if !isdefined(Main, $runtime_name)
+            Base.include_string(Main, $runtime_source)
+        end
+        runtime = getfield(Main, $runtime_name)
+        Base.eval(runtime, :(using WarmTestRunner))
+        runtime
+    end
+end
 
 function bootstrap_script_path(cfg::RunnerConfig)
     path = joinpath(cfg.pkgroot, "test", "warmtest_bootstrap.jl")
@@ -58,7 +71,7 @@ function revise_expr(cfg::RunnerConfig)
         added_tool_project = !(tool_project in LOAD_PATH)
         added_tool_project && pushfirst!(LOAD_PATH, tool_project)
         try
-            Base.eval(Main, :(using Revise))
+            using Revise
         finally
             added_tool_project && filter!(path -> path != tool_project, LOAD_PATH)
         end
@@ -84,9 +97,9 @@ function bootstrap_worker!(worker::WorkerHandle, cfg::RunnerConfig)
     using_expr = package_name === nothing ? nothing : Expr(:using, Expr(:., Symbol(package_name)))
     expr = quote
         cd($(cfg.pkgroot))
-        using WarmTestRunner
-        $(activation_expr(cfg))
-        $(revise_expr(cfg))
+        runtime = $(worker_runtime_setup_expr())
+        Core.eval(runtime, $(QuoteNode(activation_expr(cfg))))
+        Core.eval(runtime, $(QuoteNode(revise_expr(cfg))))
         if $(cfg.preload_package) && $(using_expr !== nothing)
             Base.eval(Main, $using_expr)
         end
@@ -122,11 +135,12 @@ end
 function run_test_in_worker!(worker::WorkerHandle, job::TestJob, cfg::RunnerConfig)
     worker.state = :running
     plan = execution_plan_for_job(cfg, job)
+    runtime_name = QuoteNode(WORKER_RUNTIME_MODULE)
     try
         payload = Malt.remote_eval_fetch(worker.proc, quote
-            using WarmTestRunner
             let
-                result = WarmTestRunner.execute_plan($plan; topmodule = Main)
+                runtime = getfield(Main, $runtime_name)
+                result = runtime.WarmTestRunner.execute_plan($plan; topmodule = Main)
                 (
                     path = result.path,
                     status = result.status,
@@ -156,7 +170,7 @@ function run_test_in_worker!(worker::WorkerHandle, job::TestJob, cfg::RunnerConf
     catch err
         worker.state = :crashed
         return TestResult(
-            path = result_path(cfg, job.path),
+            path = plan.label,
             status = :crashed,
             elapsed = 0.0,
             exception_summary = sprint(showerror, err),
