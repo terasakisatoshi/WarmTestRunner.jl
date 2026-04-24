@@ -179,9 +179,9 @@ function static_included_files(entryfile::AbstractString)
 
     function visit(path::String)
         path in seen && return
+        isfile(path) || return
         push!(seen, path)
         push!(ordered, path)
-        isfile(path) || return
         text = read(path, String)
         for included_path in static_include_paths(text; filename = path)
             child = normpath(joinpath(dirname(path), included_path))

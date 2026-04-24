@@ -58,6 +58,20 @@ end
     @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; tests = ["missing.jl"])
 end
 
+@testset "missing statically included file errors when selected" begin
+    mktempdir() do root
+        make_planning_fixture(
+            root;
+            runtests = """
+            using Test
+            include("missing.jl")
+            """,
+        )
+        cfg = WarmTestRunner.make_config(pkgroot = root)
+        @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; tests = ["missing.jl"])
+    end
+end
+
 @testset "empty changed and rerun selectors produce no plans" begin
     cfg = WarmTestRunner.make_config(pkgroot = PLANNING_FIXTURE_ROOT)
     @test isempty(WarmTestRunner.build_execution_plans(cfg; rerun_failed = true, last_failed = String[]))
