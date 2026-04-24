@@ -158,7 +158,7 @@ The worker should not directly `include` test files anymore.
 When `test/runtests.jl` exists, it is the suite entry point for normal runs.
 
 ```julia
-WarmTestRunner.run()
+WarmTestRunner.runtests()
 ```
 
 means:
@@ -267,7 +267,7 @@ represented explicitly in `TestSelection.run_all`, not encoded as an empty patte
 The ideal public API is:
 
 ```julia
-run(;
+runtests(;
     tests = String[],
     testsets = String[],
     line_patterns = Pair{String,Any}[],
@@ -379,7 +379,7 @@ The ideal default is:
   and partition reachable test files across workers
 - whole-suite run with dynamic or unresolvable include structure: use single-entry mode and
   emit an informational note in verbose output
-- direct `run(testsets=...)` or line/expression selection: run a focused plan on one worker
+- direct `runtests(testsets=...)` or line/expression selection: run a focused plan on one worker
 - `jobs=1`: run a single faithful plan
 
 Partitioned plans still use `test/runtests.jl` as their entry. The selection map differs

@@ -88,11 +88,11 @@ end
 @testset "crash_recovery" begin
     @testset "daemon recovers a crashed worker and retries later jobs" begin
         with_fixture_daemon() do
-            crashed = WarmTestRunner.run(tests = ["crash.jl"])
+            crashed = WarmTestRunner.runtests(tests = ["crash.jl"])
             @test crashed.crashed == 1
             @test getfield.(crashed.results, :status) == [:crashed]
 
-            recovered = WarmTestRunner.run(tests = ["pass.jl"])
+            recovered = WarmTestRunner.runtests(tests = ["pass.jl"])
             @test recovered.passed == 1
             @test getfield.(recovered.results, :status) == [:passed]
         end
@@ -100,7 +100,7 @@ end
 
     @testset "daemon continues later jobs after a permanent crash when quickfail=false" begin
         with_fixture_daemon() do
-            summary = WarmTestRunner.run(tests = ["crash.jl", "pass.jl"], quickfail = false)
+            summary = WarmTestRunner.runtests(tests = ["crash.jl", "pass.jl"], quickfail = false)
             @test getfield.(summary.results, :status) == [:crashed, :passed]
             @test summary.crashed == 1
             @test summary.passed == 1
@@ -109,7 +109,7 @@ end
 
     @testset "public retry_crashed=false finalizes the first crash and continues later jobs" begin
         with_fixture_daemon() do
-            summary = WarmTestRunner.run(tests = ["crash.jl", "pass.jl"], quickfail = false, retry_crashed = false)
+            summary = WarmTestRunner.runtests(tests = ["crash.jl", "pass.jl"], quickfail = false, retry_crashed = false)
             @test getfield.(summary.results, :status) == [:crashed, :passed]
             @test summary.crashed == 1
             @test summary.passed == 1
@@ -120,7 +120,7 @@ end
         mktempdir() do tmp
             marker = joinpath(tmp, "crash-once-default.marker")
             with_fixture_daemon(env = ["WARMTEST_CRASH_ONCE_MARKER" => marker]) do
-                summary = WarmTestRunner.run(tests = ["crash_once.jl"])
+                summary = WarmTestRunner.runtests(tests = ["crash_once.jl"])
                 @test getfield.(summary.results, :status) == [:passed]
                 @test summary.passed == 1
                 @test isfile(marker)
@@ -132,7 +132,7 @@ end
         mktempdir() do tmp
             marker = joinpath(tmp, "crash-once-true.marker")
             with_fixture_daemon(env = ["WARMTEST_CRASH_ONCE_MARKER" => marker]) do
-                summary = WarmTestRunner.run(tests = ["crash_once.jl"], retry_crashed = true)
+                summary = WarmTestRunner.runtests(tests = ["crash_once.jl"], retry_crashed = true)
                 @test getfield.(summary.results, :status) == [:passed]
                 @test summary.passed == 1
                 @test isfile(marker)
@@ -144,7 +144,7 @@ end
         mktempdir() do tmp
             marker = joinpath(tmp, "crash-once-false.marker")
             with_fixture_daemon(env = ["WARMTEST_CRASH_ONCE_MARKER" => marker]) do
-                summary = WarmTestRunner.run(tests = ["crash_once.jl"], retry_crashed = false)
+                summary = WarmTestRunner.runtests(tests = ["crash_once.jl"], retry_crashed = false)
                 @test getfield.(summary.results, :status) == [:crashed]
                 @test summary.crashed == 1
                 @test isfile(marker)
@@ -159,10 +159,10 @@ end
                 cd(pkgroot) do
                     WarmTestRunner.serve(jobs = 1)
                     try
-                        seeded = WarmTestRunner.run(tests = ["define_shared.jl"])
-                        visible = WarmTestRunner.run(tests = ["read_shared.jl"])
-                        crashed = WarmTestRunner.run(tests = ["crash.jl"], retry_crashed = false)
-                        cleared = WarmTestRunner.run(tests = ["read_shared.jl"], retry_crashed = false)
+                        seeded = WarmTestRunner.runtests(tests = ["define_shared.jl"])
+                        visible = WarmTestRunner.runtests(tests = ["read_shared.jl"])
+                        crashed = WarmTestRunner.runtests(tests = ["crash.jl"], retry_crashed = false)
+                        cleared = WarmTestRunner.runtests(tests = ["read_shared.jl"], retry_crashed = false)
 
                         @test getfield.(seeded.results, :status) == [:passed]
                         @test getfield.(visible.results, :status) == [:passed]
@@ -333,7 +333,7 @@ end
 
     @testset "public quickfail keeps skipped ordering after a retried crash" begin
         with_fixture_daemon() do
-            summary = WarmTestRunner.run(tests = ["crash.jl", "pass.jl"], quickfail = true)
+            summary = WarmTestRunner.runtests(tests = ["crash.jl", "pass.jl"], quickfail = true)
             @test getfield.(summary.results, :status) == [:crashed, :skipped]
             @test summary.crashed == 1
             @test summary.skipped == 1
@@ -342,12 +342,12 @@ end
 
     @testset "public quickfail stops immediately when retry_crashed=false finalizes a crash" begin
         with_fixture_daemon() do
-            summary = WarmTestRunner.run(tests = ["crash.jl", "pass.jl"], quickfail = true, retry_crashed = false)
+            summary = WarmTestRunner.runtests(tests = ["crash.jl", "pass.jl"], quickfail = true, retry_crashed = false)
             @test getfield.(summary.results, :status) == [:crashed, :skipped]
             @test summary.crashed == 1
             @test summary.skipped == 1
 
-            recovered = WarmTestRunner.run(tests = ["pass.jl"], retry_crashed = false)
+            recovered = WarmTestRunner.runtests(tests = ["pass.jl"], retry_crashed = false)
             @test getfield.(recovered.results, :status) == [:passed]
             @test recovered.passed == 1
         end

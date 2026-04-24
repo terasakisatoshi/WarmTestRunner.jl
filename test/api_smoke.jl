@@ -3,11 +3,12 @@ using WarmTestRunner
 
 @testset "public api smoke" begin
     @test isdefined(WarmTestRunner, :serve)
-    @test isdefined(WarmTestRunner, :run)
+    @test isdefined(WarmTestRunner, :runtests)
+    @test_throws MethodError WarmTestRunner.run()
     @test isdefined(WarmTestRunner, :stop)
     @test isdefined(WarmTestRunner, :status)
     @test isdefined(WarmTestRunner, :watch)
-    @test setdiff(names(WarmTestRunner), [:WarmTestRunner]) == [:run, :serve, :status, :stop, :watch]
+    @test setdiff(names(WarmTestRunner), [:WarmTestRunner]) == [:runtests, :serve, :status, :stop, :watch]
 
     cfg = WarmTestRunner.RunnerConfig(pkgroot = pwd(), jobs = 2)
     @test cfg.jobs == 2
@@ -23,17 +24,17 @@ using WarmTestRunner
     @test_throws ArgumentError WarmTestRunner.make_config(; color = false)
     @test_throws ArgumentError WarmTestRunner.make_config(; worker_timeout = 1.0)
     @test_throws ArgumentError WarmTestRunner.make_config(; log_level = :debug)
-    @test_throws ArgumentError WarmTestRunner.run(
+    @test_throws ArgumentError WarmTestRunner.runtests(
         pkgroot = joinpath(@__DIR__, "packages", "FixturePkg"),
         tests = ["pass.jl"],
         changed_only = true,
     )
-    @test_throws ArgumentError WarmTestRunner.run(
+    @test_throws ArgumentError WarmTestRunner.runtests(
         pkgroot = joinpath(@__DIR__, "packages", "FixturePkg"),
         rerun_failed = true,
         changed_only = true,
     )
-    @test_throws ArgumentError WarmTestRunner.run(
+    @test_throws ArgumentError WarmTestRunner.runtests(
         pkgroot = joinpath(@__DIR__, "packages", "FixturePkg"),
         output_format = :xml,
     )

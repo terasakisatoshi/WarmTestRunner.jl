@@ -68,7 +68,7 @@ mktempdir(prefix = "warmtestrunner-smoke-") do tmp
     cd(pkgroot) do
         WarmTestRunner.serve(pkgroot = pkgroot, jobs = 1)
         try
-            summary = WarmTestRunner.run(pkgroot = pkgroot)
+            summary = WarmTestRunner.runtests(pkgroot = pkgroot)
             @show summary.passed
             @show summary.failed
             @show summary.errored

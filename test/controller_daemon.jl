@@ -395,7 +395,7 @@ end
             cd(FIXTURE_ROOT) do
                 handle = WarmTestRunner.serve(jobs = 1)
                 reused = WarmTestRunner.serve(jobs = 1)
-                first = WarmTestRunner.run(tests = ["pass.jl"])
+                first = WarmTestRunner.runtests(tests = ["pass.jl"])
                 second = WarmTestRunner.status()
 
                 @test reused.pid == handle.pid
@@ -403,7 +403,7 @@ end
                 @test second.state == :idle
                 @test second.pid == handle.pid
                 @test_throws ArgumentError WarmTestRunner.serve(jobs = 2)
-                @test_throws ArgumentError WarmTestRunner.run(jobs = 2, tests = ["pass.jl"])
+                @test_throws ArgumentError WarmTestRunner.runtests(jobs = 2, tests = ["pass.jl"])
                 @test_throws ErrorException WarmTestRunner.client_request(FIXTURE_ROOT, (cmd = :bogus,))
 
                 WarmTestRunner.stop()
@@ -423,7 +423,7 @@ end
                 stop_err = nothing
                 try
                     reused = WarmTestRunner.serve(jobs = 1)
-                    summary = WarmTestRunner.run(tests = ["pass.jl"])
+                    summary = WarmTestRunner.runtests(tests = ["pass.jl"])
                     current = WarmTestRunner.status()
 
                     @test reused.server_id == handle.server_id
@@ -498,7 +498,7 @@ end
     end
 end
 
-@testset "public run fresh=true refreshes workers without replacing the daemon" begin
+@testset "public runtests fresh=true refreshes workers without replacing the daemon" begin
     mktempdir() do tmp
         pkgroot, counter_path = init_bootstrap_counter_fixture(tmp)
         withenv("WARMTESTRUNNER_HOME" => tmp) do
@@ -507,12 +507,12 @@ end
                 stop_err = nothing
                 try
                     before = WarmTestRunner.status()
-                    first = WarmTestRunner.run(tests = ["bootstrap_counter.jl"])
+                    first = WarmTestRunner.runtests(tests = ["bootstrap_counter.jl"])
                     counter_before = parse(Int, strip(read(counter_path, String)))
-                    refreshed = WarmTestRunner.run(tests = ["bootstrap_counter.jl"], fresh = true)
+                    refreshed = WarmTestRunner.runtests(tests = ["bootstrap_counter.jl"], fresh = true)
                     counter_after = parse(Int, strip(read(counter_path, String)))
                     after = WarmTestRunner.status()
-                    followup = WarmTestRunner.run(tests = ["bootstrap_counter.jl"])
+                    followup = WarmTestRunner.runtests(tests = ["bootstrap_counter.jl"])
 
                     @test first.passed == 1
                     @test refreshed.passed == 1
@@ -535,7 +535,7 @@ end
     end
 end
 
-@testset "public run fresh=true clears shared worker context" begin
+@testset "public runtests fresh=true clears shared worker context" begin
     mktempdir() do tmp
         pkgroot = init_shared_context_fixture(tmp)
         withenv("WARMTESTRUNNER_HOME" => tmp) do
@@ -543,9 +543,9 @@ end
                 WarmTestRunner.serve(jobs = 1)
                 stop_err = nothing
                 try
-                    seeded = WarmTestRunner.run(tests = ["define_shared.jl"])
-                    visible = WarmTestRunner.run(tests = ["read_shared.jl"])
-                    reset = WarmTestRunner.run(tests = ["read_shared.jl"], fresh = true)
+                    seeded = WarmTestRunner.runtests(tests = ["define_shared.jl"])
+                    visible = WarmTestRunner.runtests(tests = ["read_shared.jl"])
+                    reset = WarmTestRunner.runtests(tests = ["read_shared.jl"], fresh = true)
 
                     @test getfield.(seeded.results, :status) == [:passed]
                     @test getfield.(visible.results, :status) == [:passed]
@@ -583,7 +583,7 @@ end
 
                 stop_err = nothing
                 try
-                    summary = WarmTestRunner.run(tests = ["pass.jl"], fresh = true)
+                    summary = WarmTestRunner.runtests(tests = ["pass.jl"], fresh = true)
                     current = WarmTestRunner.status()
 
                     @test summary.passed == 1
@@ -603,35 +603,35 @@ end
     end
 end
 
-@testset "public run reruns only previous failing files" begin
+@testset "public runtests reruns only previous failing files" begin
     mktempdir() do tmp
         withenv("WARMTESTRUNNER_HOME" => tmp) do
             cd(FIXTURE_ROOT) do
                 WarmTestRunner.serve(jobs = 1)
                 try
-                    empty_before = WarmTestRunner.run(rerun_failed = true)
+                    empty_before = WarmTestRunner.runtests(rerun_failed = true)
                     @test isempty(empty_before.results)
 
-                    first = WarmTestRunner.run(tests = ["fail.jl", "pass.jl"])
+                    first = WarmTestRunner.runtests(tests = ["fail.jl", "pass.jl"])
                     @test [result.path for result in first.results] == ["test/fail.jl", "test/pass.jl"]
                     @test getfield.(first.results, :status) == [:failed, :passed]
 
                     status_after_first = WarmTestRunner.status()
                     @test status_after_first.last_failed == ["test/fail.jl"]
 
-                    rerun = WarmTestRunner.run(rerun_failed = true)
+                    rerun = WarmTestRunner.runtests(rerun_failed = true)
                     @test [result.path for result in rerun.results] == ["test/fail.jl"]
                     @test getfield.(rerun.results, :status) == [:failed]
 
-                    filtered = WarmTestRunner.run(tests = ["pass.jl", "fail.jl"], rerun_failed = true)
+                    filtered = WarmTestRunner.runtests(tests = ["pass.jl", "fail.jl"], rerun_failed = true)
                     @test [result.path for result in filtered.results] == ["test/fail.jl"]
                     @test getfield.(filtered.results, :status) == [:failed]
 
-                    cleared = WarmTestRunner.run(tests = ["pass.jl"])
+                    cleared = WarmTestRunner.runtests(tests = ["pass.jl"])
                     @test getfield.(cleared.results, :status) == [:passed]
                     @test isempty(WarmTestRunner.status().last_failed)
 
-                    empty_after = WarmTestRunner.run(rerun_failed = true)
+                    empty_after = WarmTestRunner.runtests(rerun_failed = true)
                     @test isempty(empty_after.results)
                 finally
                     WarmTestRunner.stop()
@@ -641,11 +641,11 @@ end
     end
 end
 
-@testset "public run treats empty tests selector as run all" begin
+@testset "public runtests treats empty tests selector as run all" begin
     mktempdir() do tmp
         withenv("WARMTESTRUNNER_HOME" => tmp) do
             summary = try
-                WarmTestRunner.run(
+                WarmTestRunner.runtests(
                     pkgroot = FIXTURE_ROOT,
                     tests = String[],
                     jobs = 1,
@@ -676,7 +676,7 @@ end
     mktempdir() do tmp
         withenv("WARMTESTRUNNER_HOME" => tmp) do
             first = try
-                WarmTestRunner.run(
+                WarmTestRunner.runtests(
                     pkgroot = VIRTUAL_FIXTURE_ROOT,
                     tests = ["errors.jl", "selection.jl"],
                     jobs = 1,
@@ -698,7 +698,7 @@ end
             end
 
             rerun = try
-                WarmTestRunner.run(
+                WarmTestRunner.runtests(
                     pkgroot = VIRTUAL_FIXTURE_ROOT,
                     rerun_failed = true,
                 )
@@ -723,11 +723,11 @@ end
     end
 end
 
-@testset "public run executes selected included files through runtests" begin
+@testset "public runtests executes selected included files through runtests" begin
     mktempdir() do tmp
         withenv("WARMTESTRUNNER_HOME" => tmp) do
             summary = try
-                WarmTestRunner.run(
+                WarmTestRunner.runtests(
                     pkgroot = VIRTUAL_FIXTURE_ROOT,
                     tests = ["selection.jl"],
                     jobs = 1,
@@ -756,11 +756,11 @@ end
     end
 end
 
-@testset "public run accepts named testset selectors" begin
+@testset "public runtests accepts named testset selectors" begin
     mktempdir() do tmp
         withenv("WARMTESTRUNNER_HOME" => tmp) do
             summary = try
-                WarmTestRunner.run(
+                WarmTestRunner.runtests(
                     pkgroot = VIRTUAL_FIXTURE_ROOT,
                     testsets = ["selected testset"],
                     jobs = 1,
@@ -805,7 +805,7 @@ end
             end
 
             summary = try
-                WarmTestRunner.run(
+                WarmTestRunner.runtests(
                     pkgroot = VIRTUAL_FIXTURE_ROOT,
                     testsets = ["selected testset"],
                     jobs = 1,
@@ -881,7 +881,7 @@ end
             cd(FIXTURE_ROOT) do
                 WarmTestRunner.serve(jobs = 1)
                 try
-                    run_task = @async WarmTestRunner.run(tests = [slow_path])
+                    run_task = @async WarmTestRunner.runtests(tests = [slow_path])
                     sleep(0.3)
 
                     deadline = time() + 1.5
@@ -928,7 +928,7 @@ end
 
             cd(FIXTURE_ROOT) do
                 WarmTestRunner.serve(jobs = 1)
-                run_task = @async WarmTestRunner.run(tests = [slow_path])
+                run_task = @async WarmTestRunner.runtests(tests = [slow_path])
                 deadline = time() + 1.5
                 while time() < deadline
                     current = WarmTestRunner.status()
@@ -949,14 +949,14 @@ end
     end
 end
 
-@testset "public run selects only changed tests when changed_only=true" begin
+@testset "public runtests selects only changed tests when changed_only=true" begin
     mktempdir() do tmp
         withenv("WARMTESTRUNNER_HOME" => tmp) do
             pkgroot = init_changed_only_public_fixture()
             write(joinpath(pkgroot, "test", "beta.jl"), "using Test\nprintln(\"beta changed\")\n@test true\n")
 
             summary = try
-                WarmTestRunner.run(
+                WarmTestRunner.runtests(
                     pkgroot = pkgroot,
                     jobs = 1,
                     use_testenv = false,
@@ -982,11 +982,11 @@ end
     end
 end
 
-@testset "public run returns JSON when output_format=json" begin
+@testset "public runtests returns JSON when output_format=json" begin
     mktempdir() do tmp
         withenv("WARMTESTRUNNER_HOME" => tmp) do
             json = try
-                WarmTestRunner.run(
+                WarmTestRunner.runtests(
                     pkgroot = FIXTURE_ROOT,
                     tests = ["pass.jl"],
                     jobs = 1,
@@ -1033,7 +1033,7 @@ end
             write(joinpath(pkgroot, "test", "beta.jl"), "using Test\nprintln(\"beta changed\")\n@test true\n")
 
             summary = try
-                WarmTestRunner.run(
+                WarmTestRunner.runtests(
                     pkgroot = pkgroot,
                     jobs = 1,
                     changed_only = true,

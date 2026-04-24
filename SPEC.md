@@ -60,7 +60,7 @@ The following are explicitly out of scope:
 `WarmTestRunner.jl` is a development aid, not a drop-in replacement for `Pkg.test()`.
 The intended workflow is:
 
-- Day-to-day local iteration: `WarmTestRunner.run()`
+- Day-to-day local iteration: `WarmTestRunner.runtests()`
 - Final verification before merge or release: `Pkg.test()`
 
 This distinction is fundamental. `Pkg.test()` assumes a new Julia process and a
@@ -164,12 +164,12 @@ Return value:
 
 - `ServerHandle`
 
-### 5.2 `run`
+### 5.2 `runtests`
 
 Connect to an existing server or create an ephemeral session, then run tests.
 
 ```julia
-run(;
+runtests(;
     tests = nothing,
     testsets = nothing,
     line_patterns = nothing,
@@ -242,10 +242,10 @@ that API:
 
 ```bash
 julia --project -e 'using WarmTestRunner; WarmTestRunner.serve()'
-julia --project -e 'using WarmTestRunner; WarmTestRunner.run()'
-julia --project -e 'using WarmTestRunner; WarmTestRunner.run(jobs=4)'
-julia --project -e 'using WarmTestRunner; WarmTestRunner.run(tests=["array.jl", "io.jl"])'
-julia --project -e 'using WarmTestRunner; WarmTestRunner.run(fresh=true)'
+julia --project -e 'using WarmTestRunner; WarmTestRunner.runtests()'
+julia --project -e 'using WarmTestRunner; WarmTestRunner.runtests(jobs=4)'
+julia --project -e 'using WarmTestRunner; WarmTestRunner.runtests(tests=["array.jl", "io.jl"])'
+julia --project -e 'using WarmTestRunner; WarmTestRunner.runtests(fresh=true)'
 julia --project -e 'using WarmTestRunner; WarmTestRunner.stop()'
 ```
 
@@ -445,7 +445,7 @@ Failure detail should include:
 
 ### 6.15 Machine-readable Output
 
-`run(output_format = :json)` must make structured output available for editor integration
+`runtests(output_format = :json)` must make structured output available for editor integration
 or external tooling.
 
 The exact schema may evolve, but it must preserve result status and diagnostics,
@@ -560,7 +560,7 @@ implemented, it should:
 Recommended operational pattern:
 
 1. start a warm pool once with `serve()`
-2. iterate with repeated `run()` calls
+2. iterate with repeated `runtests()` calls
 3. use `fresh=true` when state contamination is suspected
 4. use `Pkg.test()` for final isolated verification
 
@@ -702,7 +702,7 @@ Phase 2:
 Phase 3:
 
 - persistent server registry
-- `serve()` plus `run()` reconnection
+- `serve()` plus `runtests()` reconnection
 - measurable speedup on repeated runs
 
 Phase 4:
@@ -740,7 +740,7 @@ repository are:
 - adopt warm, persistent workers inspired by `DaemonMode`
 - keep isolation soft, with persistent worker `Main` and worker recreation as the hard
   reset mechanism
-- treat `serve`, `run`, `stop`, and `status` as the MVP-critical API surface
+- treat `serve`, `runtests`, `stop`, and `status` as the MVP-critical API surface
 
 ## 12. Out-Of-Spec Questions
 

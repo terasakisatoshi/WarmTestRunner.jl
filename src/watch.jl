@@ -56,7 +56,7 @@ function _watch_once(paths; debounce_seconds = 0.5)
 end
 
 function _run_watch_iteration(pkgroot::AbstractString; changed_only::Bool = true, kwargs...)
-    return run(; pkgroot = pkgroot, changed_only = changed_only, kwargs...)
+    return runtests(; pkgroot = pkgroot, changed_only = changed_only, kwargs...)
 end
 
 function watch(; paths = ["src", "test"], debounce_seconds = 0.5, changed_only::Bool = true, pkgroot::AbstractString = pwd(), kwargs...)

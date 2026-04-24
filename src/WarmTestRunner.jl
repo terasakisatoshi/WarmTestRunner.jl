@@ -15,7 +15,7 @@ include("server_registry.jl")
 include("controller.jl")
 include("watch.jl")
 
-export run, serve, status, stop, watch
+export runtests, serve, status, stop, watch
 
 function live_record_or_nothing(pkgroot::AbstractString)
     record = load_server_record(pkgroot)
@@ -79,7 +79,7 @@ function normalize_public_tests_selector(tests)
     return tests
 end
 
-function run(;
+function runtests(;
     tests = nothing,
     testsets = nothing,
     line_patterns = nothing,

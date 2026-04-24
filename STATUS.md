@@ -16,7 +16,7 @@ Current state:
 
 Practical summary:
 
-- `serve`, `run`, `status`, and `stop` work.
+- `serve`, `runtests`, `status`, and `stop` work.
 - A persistent controller process owns a warm `Malt` worker pool.
 - Tests run in each worker's `Main` through `ExecutionPlan`s. `test/runtests.jl` is the
   preferred suite entry when present.
@@ -38,7 +38,7 @@ Practical summary:
 Implemented:
 
 - `serve(; pkgroot, jobs, threads_per_worker, use_testenv, preload_package, startup_file, ...)`
-- `run(; tests = nothing, testsets = nothing, line_patterns = nothing, expression_patterns = nothing, quickfail = false, changed_only = false, rerun_failed = false, fresh = false, retry_crashed = true, output_format = :text, kwargs...)`
+- `runtests(; tests = nothing, testsets = nothing, line_patterns = nothing, expression_patterns = nothing, quickfail = false, changed_only = false, rerun_failed = false, fresh = false, retry_crashed = true, output_format = :text, kwargs...)`
 - `watch(; paths = ["src", "test"], debounce_seconds = 0.5, changed_only = true, kwargs...)`
 - `status(; pkgroot = pwd())`
 - `stop(; pkgroot = pwd())`
@@ -46,31 +46,31 @@ Implemented:
 Current behavior:
 
 - `serve()` starts or reuses a daemon for the package root.
-- `run()` connects to the daemon, builds execution plans, and returns a structured
+- `runtests()` connects to the daemon, builds execution plans, and returns a structured
   `RunSummary`. Public `tests = String[]` is treated the same as omitting `tests`.
-- `run()` uses `test/runtests.jl` as the preferred suite entry. File selections execute
+- `runtests()` uses `test/runtests.jl` as the preferred suite entry. File selections execute
   through that entry when the selected file is reachable from it.
-- `run(...; tests = [...])` reports selected files as result units even though execution
+- `runtests(...; tests = [...])` reports selected files as result units even though execution
   still goes through the suite entry.
-- `run(...; testsets = [...])`, `run(...; line_patterns = [...])`, and
-  `run(...; expression_patterns = [...])` are implemented.
-- `run(...; output_format = :json)` returns a JSON string preserving summary counts and
+- `runtests(...; testsets = [...])`, `runtests(...; line_patterns = [...])`, and
+  `runtests(...; expression_patterns = [...])` are implemented.
+- `runtests(...; output_format = :json)` returns a JSON string preserving summary counts and
   structured diagnostics.
-- `run(...; changed_only = true)` selects changed tests with the implemented coarse
+- `runtests(...; changed_only = true)` selects changed tests with the implemented coarse
   heuristic, including the `src/` fallback to the full discovered set.
-- `run(...; changed_only = true)` also falls back to the full discovered set when Git
+- `runtests(...; changed_only = true)` also falls back to the full discovered set when Git
   change detection is unavailable or the package is not in a usable Git repo.
-- `run(...; rerun_failed = true)` reruns only the previously failing result units
+- `runtests(...; rerun_failed = true)` reruns only the previously failing result units
   recorded for the daemon session or package root.
-- `run(...; rerun_failed = true, tests = [...])` filters the explicit test list down to
+- `runtests(...; rerun_failed = true, tests = [...])` filters the explicit test list down to
   the previously failing files while preserving the explicit order.
-- `run(...; rerun_failed = true)` returns an empty `RunSummary` when there is no recorded
+- `runtests(...; rerun_failed = true)` returns an empty `RunSummary` when there is no recorded
   failing-file history.
-- `run(...; fresh = true)` recreates the existing daemon's worker pool before selecting and scheduling jobs.
-- `run(...; fresh = true)` preserves daemon identity and registry ownership while discarding warm worker state when the live daemon already supports the `fresh` protocol.
-- when protocol compatibility is too old, `run(...; fresh = true)` restarts the daemon before running.
-- `run(...; retry_crashed = true)` retries a crashed file once on a recreated worker before finalizing the result.
-- `run(...; retry_crashed = false)` finalizes the first `:crashed` result for that file but still allows later jobs to use recovered workers when scheduling continues.
+- `runtests(...; fresh = true)` recreates the existing daemon's worker pool before selecting and scheduling jobs.
+- `runtests(...; fresh = true)` preserves daemon identity and registry ownership while discarding warm worker state when the live daemon already supports the `fresh` protocol.
+- when protocol compatibility is too old, `runtests(...; fresh = true)` restarts the daemon before running.
+- `runtests(...; retry_crashed = true)` retries a crashed file once on a recreated worker before finalizing the result.
+- `runtests(...; retry_crashed = false)` finalizes the first `:crashed` result for that file but still allows later jobs to use recovered workers when scheduling continues.
 - `status()` reports daemon state and current active-job count.
 - `stop()` sends a stop request and returns after the controller acknowledges it.
 - `watch()` monitors existing source/test paths, debounces filesystem events, and reruns
@@ -84,7 +84,7 @@ Important note:
 - `stop()` does not wait for registry-file disappearance before returning. Shutdown
   completion is asynchronous after the stop ACK.
 - Revise state is per worker, and macro expansion, generated functions, and constant
-  redefinition may still need `run(fresh = true)`.
+  redefinition may still need `runtests(fresh = true)`.
 
 ### Core Runtime
 
@@ -221,7 +221,7 @@ If measured against the current MVP plan rather than the full spec, the reposito
 
 Most sensible next steps:
 
-1. finish richer filtering in the public `run` API:
+1. finish richer filtering in the public `runtests` API:
    - path or filename substring filtering
    - tag include/exclude filtering using existing `# warmtest: tags=...` metadata
    - daemon protocol compatibility and README coverage

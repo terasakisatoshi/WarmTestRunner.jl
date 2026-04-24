@@ -10,7 +10,7 @@
 
 `julia --project=. --startup-file=no -e 'using Pkg; Pkg.test()'` runs the repository test suite in the clean test environment and is the standard verification step before merging. Running `include("test/runtests.jl")` separately is usually redundant.
 
-`julia --project=. -e 'using WarmTestRunner; WarmTestRunner.serve(); WarmTestRunner.run()'` starts or reuses the daemon-backed worker pool for local iteration.
+`julia --project=. -e 'using WarmTestRunner; WarmTestRunner.serve(); WarmTestRunner.runtests()'` starts or reuses the daemon-backed worker pool for local iteration.
 
 ## Coding Style & Naming Conventions
 Follow the existing Julia style: 4-space indentation, no tabs, concise functions, and explicit keyword arguments when configuration matters. Use `UpperCamelCase` for types like `RunnerConfig`, `snake_case` for functions like `start_worker_pool`, and all-caps names for test constants like `FIXTURE_ROOT`.
