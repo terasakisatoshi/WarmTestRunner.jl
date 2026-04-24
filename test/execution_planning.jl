@@ -367,3 +367,29 @@ end
     @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; line_patterns = Pair{String,Any}[])
     @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; expression_patterns = Pair{String,Any}[])
 end
+
+@testset "empty changed and rerun selectors still validate explicit selectors" begin
+    cfg = WarmTestRunner.make_config(pkgroot = PLANNING_FIXTURE_ROOT)
+    @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; rerun_failed = true, last_failed = String[], testsets = ["not a testset"])
+    @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; rerun_failed = true, last_failed = String[], line_patterns = ["selection.jl" => 0])
+    @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; rerun_failed = true, last_failed = String[], expression_patterns = ["missing.jl" => "x"])
+
+    mktempdir() do root
+        make_planning_fixture(
+            root;
+            runtests = """
+            using Test
+            include("alpha.jl")
+            """,
+            files = Dict("alpha.jl" => "@test true\n"),
+        )
+        Base.run(`git -C $root init --quiet`)
+        Base.run(`git -C $root add .`)
+        Base.run(`git -C $root commit --quiet -m initial`)
+
+        cfg = WarmTestRunner.make_config(pkgroot = root)
+        @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; changed_only = true, testsets = ["not a testset"])
+        @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; changed_only = true, line_patterns = ["alpha.jl" => 0])
+        @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; changed_only = true, expression_patterns = ["missing.jl" => "x"])
+    end
+end

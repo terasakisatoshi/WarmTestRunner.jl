@@ -273,11 +273,8 @@ function build_execution_plans(
         selected_tests = [result_path(cfg, job.path) for job in discover_changed_tests(cfg.pkgroot)]
     end
 
-    if (changed_only || rerun_failed) && isempty(selected_tests)
-        return ExecutionPlan[]
-    end
-
     if isempty(selected_tests) && isempty(selected_testsets) && isempty(selected_line_patterns) && isempty(selected_expression_patterns)
+        (changed_only || rerun_failed) && return ExecutionPlan[]
         return [ExecutionPlan(entryfile = entry, run_all = true, label = "test/runtests.jl")]
     end
 
@@ -301,6 +298,9 @@ function build_execution_plans(
     for pair in selected_expression_patterns
         file = selected_file_from_map(reachability, cfg, first(pair), entry)
         push!(selections, TestSelection(file = file, patterns = Any[last(pair)]))
+    end
+    if (changed_only || rerun_failed) && isempty(selected_tests)
+        return ExecutionPlan[]
     end
     return [
         ExecutionPlan(entryfile = entry, selections = group, label = "test/runtests.jl")
