@@ -53,6 +53,20 @@ function selected_files_from_names(map::Dict{String,Vector{String}}, cfg::Runner
     return [selected_file_from_map(map, cfg, name, entryfile) for name in names]
 end
 
+function filter_selected_files_from_names(map::Dict{String,Vector{String}}, cfg::RunnerConfig, names::AbstractVector{<:AbstractString}, entryfile::AbstractString)
+    files = String[]
+    for name in names
+        file = try
+            selected_file_from_map(map, cfg, name, entryfile)
+        catch err
+            err isa ArgumentError || rethrow()
+            nothing
+        end
+        file === nothing || push!(files, file)
+    end
+    return files
+end
+
 function all_reachable_files(map::Dict{String,Vector{String}})
     files = String[]
     seen = Set{String}()
@@ -195,6 +209,7 @@ function expr_contains_named_testset(pattern, @nospecialize(expr))
     execution_matches_named_testset(pattern, expr) && return true
     expr isa Expr || return false
     is_nonexecuted_static_include_container(expr) && return false
+    is_static_executable_container(expr) || return false
     return any(arg -> expr_contains_named_testset(pattern, arg), expr.args)
 end
 
@@ -244,7 +259,7 @@ function build_file_entry_plans(
 
     selected_tests = selected_test_names
     if rerun_failed
-        failed_files = isempty(last_failed) ? String[] : selected_files_from_names(filemap, cfg, String.(last_failed), testdir)
+        failed_files = isempty(last_failed) ? String[] : filter_selected_files_from_names(filemap, cfg, String.(last_failed), testdir)
         if isempty(selected_test_names)
             selected_tests = collect(failed_files)
         else
@@ -339,7 +354,7 @@ function build_execution_plans(
     reachability = reachable_file_map(entry)
     selected_tests = selected_test_names
     if rerun_failed
-        failed_files = Set(selected_files_from_names(reachability, cfg, String.(last_failed), entry))
+        failed_files = Set(filter_selected_files_from_names(reachability, cfg, String.(last_failed), entry))
         if isempty(selected_test_names)
             selected_tests = collect(failed_files)
         else
@@ -347,7 +362,11 @@ function build_execution_plans(
             selected_tests = [file for file in explicit_files if file in failed_files]
         end
     elseif changed_only
-        selected_tests = [result_path(cfg, job.path) for job in discover_changed_tests(cfg.pkgroot)]
+        reachable_files = Set(all_reachable_files(reachability))
+        selected_tests = [
+            abspath(job.path) for job in discover_changed_tests(cfg.pkgroot)
+            if abspath(job.path) in reachable_files
+        ]
     end
 
     if isempty(selected_tests) && isempty(selected_testsets) && isempty(selected_line_patterns) && isempty(selected_expression_patterns)

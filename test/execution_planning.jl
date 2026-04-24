@@ -208,6 +208,10 @@ end
                 include("wrapped.jl")
             end
 
+            if false
+                include("conditional_ghost.jl")
+            end
+
             f() = include("short_function_ghost.jl")
             typed_f()::Any = include("typed_short_function_ghost.jl")
             """,
@@ -232,10 +236,17 @@ end
                     typed_latent()::Any = @testset "typed latent hidden" begin
                         @test false
                     end
+
+                    if false
+                        @testset "conditional latent hidden" begin
+                            @test false
+                        end
+                    end
                 end
                 """,
                 "short_function_ghost.jl" => "@test false\n",
                 "typed_short_function_ghost.jl" => "@test false\n",
+                "conditional_ghost.jl" => "@test false\n",
             ),
         )
         cfg = WarmTestRunner.make_config(pkgroot = root)
@@ -255,8 +266,10 @@ end
 
         @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; testsets = ["latent hidden"])
         @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; testsets = ["typed latent hidden"])
+        @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; testsets = ["conditional latent hidden"])
         @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; tests = ["short_function_ghost.jl"])
         @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; tests = ["typed_short_function_ghost.jl"])
+        @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; tests = ["conditional_ghost.jl"])
     end
 end
 
@@ -405,6 +418,34 @@ end
         @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; changed_only = true, line_patterns = ["alpha.jl" => 0])
         @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; changed_only = true, expression_patterns = ["missing.jl" => "x"])
     end
+end
+
+@testset "changed_only ignores unreachable implicit changes" begin
+    mktempdir() do root
+        make_planning_fixture(
+            root;
+            runtests = """
+            using Test
+            include("alpha.jl")
+            """,
+            files = Dict(
+                "alpha.jl" => "@test true\n",
+                "beta.jl" => "@test false\n",
+            ),
+        )
+        Base.run(`git -C $root init --quiet`)
+        Base.run(`git -C $root add .`)
+        Base.run(`git -C $root commit --quiet -m initial`)
+        write_file(joinpath(root, "test", "beta.jl"), "@test true\n")
+
+        cfg = WarmTestRunner.make_config(pkgroot = root)
+        @test isempty(WarmTestRunner.build_execution_plans(cfg; changed_only = true))
+    end
+end
+
+@testset "rerun_failed ignores unreachable implicit failures" begin
+    cfg = WarmTestRunner.make_config(pkgroot = PLANNING_FIXTURE_ROOT)
+    @test isempty(WarmTestRunner.build_execution_plans(cfg; rerun_failed = true, last_failed = ["missing.jl"]))
 end
 
 @testset "planning without runtests validates and applies selectors" begin

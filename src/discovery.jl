@@ -122,11 +122,25 @@ function collect_static_include_paths!(paths::Vector{String}, @nospecialize(expr
         return paths
     end
     expr isa Expr || return paths
-    is_nonexecuted_static_include_container(expr) && return paths
+    is_static_executable_container(expr) || return paths
     for arg in expr.args
         collect_static_include_paths!(paths, arg)
     end
     return paths
+end
+
+function is_static_executable_container(@nospecialize(expr))
+    expr isa Expr || return false
+    expr.head in (:block, :module) && return true
+    return is_static_testset_macrocall(expr)
+end
+
+function is_static_testset_macrocall(@nospecialize(expr))
+    Meta.isexpr(expr, :macrocall) || return false
+    isempty(expr.args) && return false
+    macro_name = first(expr.args)
+    macro_name == Symbol("@testset") && return true
+    return macro_name isa GlobalRef && macro_name.name == Symbol("@testset")
 end
 
 function is_nonexecuted_static_include_container(@nospecialize(expr))
