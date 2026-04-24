@@ -180,6 +180,58 @@ end
     end
 end
 
+@testset "static include discovery follows top-level executable containers" begin
+    mktempdir() do root
+        make_planning_fixture(
+            root;
+            runtests = """
+            using Test
+
+            begin
+                include("grouped.jl")
+            end
+
+            @testset "root wrapper" begin
+                include("wrapped.jl")
+            end
+
+            f() = include("short_function_ghost.jl")
+            """,
+            files = Dict(
+                "grouped.jl" => """
+                using Test
+                @testset "grouped selected" begin
+                    @test true
+                end
+                """,
+                "wrapped.jl" => """
+                using Test
+                @testset "wrapped selected" begin
+                    @test false
+                end
+                """,
+                "short_function_ghost.jl" => "@test false\n",
+            ),
+        )
+        cfg = WarmTestRunner.make_config(pkgroot = root)
+
+        plans = WarmTestRunner.build_execution_plans(cfg; tests = ["grouped.jl"])
+        @test endswith(only(only(plans).selections).file, joinpath("test", "grouped.jl"))
+
+        plans = WarmTestRunner.build_execution_plans(cfg; tests = ["wrapped.jl"])
+        @test endswith(only(only(plans).selections).file, joinpath("test", "wrapped.jl"))
+        result = WarmTestRunner.execute_plan(only(plans); topmodule = Module(:ExecutionPlanningWrappedInclude))
+        @test result.status == :failed
+
+        plans = WarmTestRunner.build_execution_plans(cfg; testsets = ["wrapped selected"])
+        @test endswith(only(only(plans).selections).file, joinpath("test", "wrapped.jl"))
+        result = WarmTestRunner.execute_plan(only(plans); topmodule = Module(:ExecutionPlanningWrappedNameInclude))
+        @test result.status == :failed
+
+        @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; tests = ["short_function_ghost.jl"])
+    end
+end
+
 @testset "multiple entry selections keep all patterns" begin
     cfg = WarmTestRunner.make_config(pkgroot = PLANNING_FIXTURE_ROOT)
     plans = WarmTestRunner.build_execution_plans(cfg; testsets = ["selected testset", "other testset"])

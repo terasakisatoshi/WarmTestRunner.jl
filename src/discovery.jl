@@ -101,15 +101,47 @@ function static_include_paths(text::AbstractString; filename::AbstractString = "
     paths = String[]
     for index in 1:JS.numchildren(top)
         node = top[index]
-        try
-            expr = Expr(node)
-            if is_static_include_call(expr)
-                push!(paths, last(expr.args))
-            end
-        catch
-        end
+        collect_static_include_paths!(paths, node)
     end
     return paths
+end
+
+function collect_static_include_paths!(paths::Vector{String}, node::JS.SyntaxNode)
+    expr = try
+        Expr(node)
+    catch
+        return paths
+    end
+    collect_static_include_paths!(paths, expr)
+    return paths
+end
+
+function collect_static_include_paths!(paths::Vector{String}, @nospecialize(expr))
+    if is_static_include_call(expr)
+        push!(paths, last(expr.args))
+        return paths
+    end
+    expr isa Expr || return paths
+    is_nonexecuted_static_include_container(expr) && return paths
+    for arg in expr.args
+        collect_static_include_paths!(paths, arg)
+    end
+    return paths
+end
+
+function is_nonexecuted_static_include_container(@nospecialize(expr))
+    expr isa Expr || return false
+    expr.head in (:function, :macro, :(->), :quote) && return true
+    return is_short_function_definition(expr)
+end
+
+function is_short_function_definition(@nospecialize(expr))
+    Meta.isexpr(expr, :(=), 2) || return false
+    lhs = first(expr.args)
+    lhs isa Expr || return false
+    lhs.head == :call && return true
+    lhs.head == :where && !isempty(lhs.args) && first(lhs.args) isa Expr && first(lhs.args).head == :call && return true
+    return false
 end
 
 function is_static_include_call(@nospecialize(expr))

@@ -216,6 +216,42 @@ function is_testset_or_test(@nospecialize expr)
            MacroTools.@capture(expr, @testset(xs__))
 end
 
+function selected_target_files(interp::WarmTestInterpreter)
+    targets = Set{String}()
+    union!(targets, keys(interp.patterns))
+    union!(targets, interp.run_all_files)
+    return targets
+end
+
+function includes_selected_target(interp::WarmTestInterpreter, node::JS.SyntaxNode)
+    targets = selected_target_files(interp)
+    isempty(targets) && return false
+    paths = String[]
+    collect_static_include_paths!(paths, node)
+    for path in paths
+        child = normpath(joinpath(dirname(interp.filename), path))
+        for included_file in static_included_files(child)
+            abspath(included_file) in targets && return true
+        end
+    end
+    return false
+end
+
+function evaluate_test_expr!(interp::WarmTestInterpreter, context::Module, expr, lnn::LineNumberNode)
+    expr = Expr(:block, expr, lnn)
+    lwr = Meta.lower(context, expr)
+
+    if !Meta.isexpr(lwr, :thunk)
+        Core.eval(context, lwr)
+        return nothing
+    end
+    src = only(lwr.args)::CodeInfo
+
+    frame = JI.Frame(context, src)
+    JI.finish!(interp, frame, #=istoplevel=#true)
+    return nothing
+end
+
 function select_statements!(
     interp::WarmTestInterpreter,
     concretized::BitVector,
@@ -464,17 +500,9 @@ function _virtual_run(interp::WarmTestInterpreter, sntop::JS.SyntaxNode)
         patterns = get(interp.patterns, interp.filename, nothing)
 
         if is_test_expr && run_all_file
-            expr = Expr(:block, expr, lnn)
-            lwr = Meta.lower(context, expr)
-
-            if !Meta.isexpr(lwr, :thunk)
-                Core.eval(context, lwr)
-                continue
-            end
-            src = only(lwr.args)::CodeInfo
-
-            frame = JI.Frame(context, src)
-            JI.finish!(interp, frame, #=istoplevel=#true)
+            evaluate_test_expr!(interp, context, expr, lnn)
+        elseif is_test_expr && includes_selected_target(interp, node)
+            evaluate_test_expr!(interp, context, expr, lnn)
         elseif is_test_expr && !isnothing(patterns)
             # For @testset and @test, use pattern matching
             lines = Set{Int}()
