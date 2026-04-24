@@ -803,9 +803,10 @@ end
 
             @test json isa String
             if json isa String
-                @test occursin("\"schema_version\":1", json)
+                @test occursin("\"schema_version\":2", json)
                 @test occursin("\"passed\":1", json)
                 @test occursin("\"status\":\"passed\"", json)
+                @test occursin("\"diagnostics\":[]", json)
                 @test occursin("\"path\":", json)
             end
 
