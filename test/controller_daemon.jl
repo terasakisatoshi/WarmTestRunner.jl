@@ -105,6 +105,50 @@ function init_bootstrap_counter_fixture(tmp::AbstractString)
     return pkgroot, counter_path
 end
 
+function init_shared_context_fixture(tmp::AbstractString)
+    pkgroot = joinpath(tmp, "SharedContextFixture")
+    mkpath(joinpath(pkgroot, "src"))
+    mkpath(joinpath(pkgroot, "test"))
+
+    write(
+        joinpath(pkgroot, "Project.toml"),
+        """
+        name = "SharedContextFixture"
+        uuid = "11111111-2222-3333-4444-555555555555"
+        version = "0.1.0"
+        """,
+    )
+    write(
+        joinpath(pkgroot, "src", "SharedContextFixture.jl"),
+        """
+        module SharedContextFixture
+
+        add1(x) = x + 1
+
+        end
+        """,
+    )
+    write(
+        joinpath(pkgroot, "test", "define_shared.jl"),
+        """
+        using Test
+        using SharedContextFixture
+        shared_ctx_value = SharedContextFixture.add1(40)
+        @test shared_ctx_value == 41
+        """,
+    )
+    write(
+        joinpath(pkgroot, "test", "read_shared.jl"),
+        """
+        using Test
+        shared_ctx_value == 41 || error("shared_ctx_value mismatch")
+        @test true
+        """,
+    )
+    write(joinpath(pkgroot, "test", "crash.jl"), "exit(1)\n")
+    return pkgroot
+end
+
 @testset "inline scheduler runs pass and fail files" begin
     cfg = WarmTestRunner.make_config(pkgroot = FIXTURE_ROOT, jobs = 2)
     jobs = [PASS_JOB, FAIL_JOB]
@@ -476,6 +520,36 @@ end
                     @test counter_after == counter_before + 1
                     @test status_identity(after) == status_identity(before)
                     @test after.state == :idle
+                finally
+                    try
+                        WarmTestRunner.stop()
+                    catch err
+                        stop_err = err
+                    end
+                    WarmTestRunner.wait_for_record_gone(pkgroot)
+                    stop_err === nothing || rethrow(stop_err)
+                end
+            end
+        end
+    end
+end
+
+@testset "public run fresh=true clears shared worker context" begin
+    mktempdir() do tmp
+        pkgroot = init_shared_context_fixture(tmp)
+        withenv("WARMTESTRUNNER_HOME" => tmp) do
+            cd(pkgroot) do
+                WarmTestRunner.serve(jobs = 1)
+                stop_err = nothing
+                try
+                    seeded = WarmTestRunner.run(tests = ["define_shared.jl"])
+                    visible = WarmTestRunner.run(tests = ["read_shared.jl"])
+                    reset = WarmTestRunner.run(tests = ["read_shared.jl"], fresh = true)
+
+                    @test getfield.(seeded.results, :status) == [:passed]
+                    @test getfield.(visible.results, :status) == [:passed]
+                    @test getfield.(reset.results, :status) == [:errored]
+                    @test occursin("UndefVarError", something(only(reset.results).stacktrace, ""))
                 finally
                     try
                         WarmTestRunner.stop()

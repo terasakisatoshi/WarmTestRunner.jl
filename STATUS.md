@@ -1,6 +1,6 @@
 # WarmTestRunner.jl Status
 
-Updated: 2026-04-23
+Updated: 2026-04-24
 
 This file summarizes how much of `SPEC.md` is implemented in the current repository and
 what remains deferred.
@@ -19,7 +19,7 @@ Practical summary:
 
 - `serve`, `run`, `status`, and `stop` work.
 - A persistent controller process owns a warm `Malt` worker pool.
-- Test files run in fresh modules inside reused workers.
+- Test files run inside shared worker-local modules inside reused workers.
 - File-level parallel scheduling, output capture, crash recovery, and `quickfail` work.
 - `changed_only` is implemented as a runtime selection flag.
 - `watch()` is implemented for debounced source/test path monitoring.
@@ -88,7 +88,7 @@ Implemented:
 - Worker bootstrap with package/test environment activation
 - Optional `Revise.jl` loading during worker bootstrap when `use_revise = true`
 - Optional bootstrap hook via `test/warmtest_bootstrap.jl`
-- Per-test-file execution in a fresh module
+- Per-test-file execution in a shared worker-local module
 - File discovery under `test/`
 - Exclusion of `test/runtests.jl` and `test/warmtest_bootstrap.jl`
 - Tag parsing for `# warmtest: tags=...`
@@ -179,7 +179,7 @@ Compared with the broader spec / earlier discussion:
 - Reusing an existing daemon with incompatible kwargs raises `ArgumentError` instead of
   silently reusing it.
 - `stop()` is optimized for prompt acknowledgment, not synchronous teardown completion.
-- Soft isolation is the model: fresh module per file, persistent worker per session.
+- Soft isolation is the model: shared worker-local test module, persistent worker per session.
 - This is a development-time runner, not a replacement for final `Pkg.test()` checks.
 
 ## Rough Completion Assessment
