@@ -104,8 +104,8 @@ function static_include_paths(text::AbstractString; filename::AbstractString = "
         node = pop!(stack)
         try
             expr = Expr(node)
-            if Meta.isexpr(expr, :call) && length(expr.args) == 2 && expr.args[1] == :include && expr.args[2] isa String
-                push!(paths, expr.args[2])
+            if is_static_include_call(expr)
+                push!(paths, last(expr.args))
             end
         catch
         end
@@ -114,6 +114,15 @@ function static_include_paths(text::AbstractString; filename::AbstractString = "
         end
     end
     return paths
+end
+
+function is_static_include_call(@nospecialize(expr))
+    Meta.isexpr(expr, :call) || return false
+    length(expr.args) >= 2 || return false
+    last(expr.args) isa String || return false
+    callee = first(expr.args)
+    callee == :include && return true
+    return callee == :(Base.include)
 end
 
 function static_included_files(entryfile::AbstractString)

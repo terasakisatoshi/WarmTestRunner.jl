@@ -129,6 +129,34 @@ end
     end
 end
 
+@testset "static include discovery handles module include forms" begin
+    mktempdir() do root
+        make_planning_fixture(
+            root;
+            runtests = """
+            using Test
+            module Sub
+            end
+            include(Sub, "inside.jl")
+            Base.include(Sub, "base_inside.jl")
+            """,
+            files = Dict(
+                "inside.jl" => "@test true\n",
+                "base_inside.jl" => "@test true\n",
+            ),
+        )
+        cfg = WarmTestRunner.make_config(pkgroot = root)
+
+        plans = WarmTestRunner.build_execution_plans(cfg; tests = ["inside.jl"])
+        selection = only(only(plans).selections)
+        @test endswith(selection.file, joinpath("test", "inside.jl"))
+
+        plans = WarmTestRunner.build_execution_plans(cfg; tests = ["base_inside.jl"])
+        selection = only(only(plans).selections)
+        @test endswith(selection.file, joinpath("test", "base_inside.jl"))
+    end
+end
+
 @testset "multiple entry selections keep all patterns" begin
     cfg = WarmTestRunner.make_config(pkgroot = PLANNING_FIXTURE_ROOT)
     plans = WarmTestRunner.build_execution_plans(cfg; testsets = ["selected testset", "other testset"])
