@@ -32,7 +32,7 @@ function WarmTestInterpreter(
     return WarmTestInterpreter(patterns, filter_lines, run_all_files, filename, context, current_exceptions)
 end
 
-const current_warmtest_interpreter = Ref{WarmTestInterpreter}()
+const current_warmtest_interpreter = Ref{Union{Nothing,WarmTestInterpreter}}(nothing)
 
 function traverse(f, node::JS.SyntaxNode)
     stack = JS.SyntaxNode[node]
@@ -272,7 +272,6 @@ end
 # but includes a few important adjustments specific to WarmTestRunner's virtual process:
 # - Special handling for `include` calls: recursively apply the virtual process to included files.
 function JI.evaluate_call!(interp::WarmTestInterpreter, ::JI.Frame, fargs::Vector{Any}, ::Bool)
-    args = fargs
     f = popfirst!(fargs)
     args = fargs # now it's really args
     isinclude(f) && return handle_include(interp, f, args)
@@ -291,7 +290,7 @@ function handle_include(interp::WarmTestInterpreter, @nospecialize(include_func)
         if isa(x, Module)
             include_context = x
         elseif isa(x, Function)
-            @warn "WarmTestRunner is unable to execute `include(mapexpr::Function, filename::String)` call currently."
+            throw(ArgumentError("include(mapexpr, file) is not supported by WarmTestRunner virtual execution"))
         else
             @invokelatest include_func(args...) # make it throw throw
             @assert false "unreachable"
@@ -441,6 +440,7 @@ end
 
 function execute_plan(plan::ExecutionPlan; topmodule::Module = Main)
     started = time()
+    old_interp = current_warmtest_interpreter[]
     outcome = run_in_fresh_task() do
         capture_test_output() do
             Core.eval(topmodule, :(using Test))
@@ -460,8 +460,12 @@ function execute_plan(plan::ExecutionPlan; topmodule::Module = Main)
                 ExceptionFrame[],
             )
             current_warmtest_interpreter[] = interp
-            _virtual_run(interp)
-            return nothing
+            try
+                _virtual_run(interp)
+                return nothing
+            finally
+                current_warmtest_interpreter[] = old_interp
+            end
         end
     end
     if outcome[1] == :err

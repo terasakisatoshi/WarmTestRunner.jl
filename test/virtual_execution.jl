@@ -46,6 +46,20 @@ try
         @test occursin("selected testset", result.stdout)
         @test occursin("other testset", result.stdout)
     end
+
+    @testset "virtual execution top-level test failure is failed" begin
+        mktempdir() do tmp
+            entry = joinpath(tmp, "runtests.jl")
+            write(entry, """
+            using Test
+
+            @test 1 == 2
+            """)
+            plan = WarmTestRunner.ExecutionPlan(entryfile = entry, run_all = true)
+            result = WarmTestRunner.execute_plan(plan; topmodule = Module(:VirtualExecutionTopLevelFailure))
+            @test result.status == :failed
+        end
+    end
 finally
     VIRTUAL_FIXTURE_LOAD_PATH_ADDED && filter!(path -> path != VIRTUAL_FIXTURE_ROOT, LOAD_PATH)
 end
