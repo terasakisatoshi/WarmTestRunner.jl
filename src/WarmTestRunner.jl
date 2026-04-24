@@ -72,6 +72,13 @@ function validate_output_format(output_format::Symbol)
     throw(ArgumentError("output_format must be :text or :json"))
 end
 
+function normalize_public_tests_selector(tests)
+    tests === nothing && return nothing
+    applicable(iterate, tests) || throw(ArgumentError("tests selection must be a collection"))
+    isempty(tests) && return nothing
+    return tests
+end
+
 function run(;
     tests = nothing,
     testsets = nothing,
@@ -86,7 +93,8 @@ function run(;
     kwargs...,
 )
     validate_output_format(output_format)
-    tests_provided = tests !== nothing && !isempty(tests)
+    tests = normalize_public_tests_selector(tests)
+    tests_provided = tests !== nothing
     tests_provided && changed_only && throw(ArgumentError("changed_only cannot be combined with explicit tests"))
     changed_only && rerun_failed && throw(ArgumentError("changed_only cannot be combined with rerun_failed"))
     cfg = make_config(; kwargs...)

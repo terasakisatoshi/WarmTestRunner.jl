@@ -82,6 +82,21 @@ function build_plan_jobs(
     return plans_to_jobs(cfg, plans)
 end
 
+function failed_paths_for_job(cfg::RunnerConfig, job::TestJob, result::TestResult)
+    result.status in (:failed, :errored, :crashed) || return String[]
+    plan = job.plan
+    plan === nothing && return String[result.path]
+    if plan.run_all || isempty(plan.selections)
+        return String[plan.label]
+    end
+
+    paths = String[]
+    for selection in plan.selections
+        push!(paths, result_path(cfg, selection.file))
+    end
+    return unique!(paths)
+end
+
 function start_worker_pool(cfg::RunnerConfig)
     workers = [start_worker(cfg; id = i) for i in 1:cfg.jobs]
     try
@@ -471,7 +486,14 @@ function run_jobs_on_pool!(state::ControllerState, jobs::AbstractVector{<:TestJo
             state.cfg.pkgroot;
             state = state.stop_requested ? :stopping : :idle,
             running_jobs = 0,
-            last_failed = [result.path for result in summary.results if result.status in (:failed, :errored, :crashed)],
+            last_failed = reduce(
+                append!,
+                (
+                    failed_paths_for_job(state.cfg, job, result)
+                    for (job, result) in zip(jobs, summary.results)
+                );
+                init = String[],
+            ),
             last_success_at = successful_run ? time() : state.status.last_success_at,
         )
     end
@@ -507,7 +529,7 @@ function handle_request!(state::ControllerState, request)
             end
             build_plan_jobs(
                 state.cfg;
-                tests = request_payload(request, :tests, String[]),
+                tests = request_payload(request, :tests, nothing),
                 testsets = request_payload(request, :testsets, nothing),
                 line_patterns = request_payload(request, :line_patterns, nothing),
                 expression_patterns = request_payload(request, :expression_patterns, nothing),
