@@ -76,6 +76,36 @@ function push_selection!(selections::Vector{TestSelection}, selection::TestSelec
     return selections
 end
 
+function push_line_pattern!(patterns::Vector{Any}, filter_lines::Set{Int}, line::Integer)
+    normalized = Int(line)
+    push!(patterns, normalized)
+    push!(filter_lines, normalized)
+    return nothing
+end
+
+function push_line_pattern!(patterns::Vector{Any}, filter_lines::Set{Int}, range::UnitRange{<:Integer})
+    push!(patterns, range)
+    union!(filter_lines, Int.(range))
+    return nothing
+end
+
+function push_line_pattern!(patterns::Vector{Any}, filter_lines::Set{Int}, @nospecialize(line))
+    throw(ArgumentError("line selections must be integers, ranges, or collections of integers/ranges; got $(repr(line))"))
+end
+
+function line_patterns_for_selection(lines)
+    patterns = Any[]
+    filter_lines = Set{Int}()
+    if lines isa Integer || lines isa UnitRange{<:Integer}
+        push_line_pattern!(patterns, filter_lines, lines)
+    else
+        for line in lines
+            push_line_pattern!(patterns, filter_lines, line)
+        end
+    end
+    return (; patterns, filter_lines)
+end
+
 function build_execution_plans(
     cfg::RunnerConfig;
     tests::AbstractVector{<:AbstractString} = String[],
@@ -135,8 +165,8 @@ function build_execution_plans(
     for pair in line_patterns
         file = selected_file_from_map(reachability, cfg, first(pair), entry)
         lines = last(pair)
-        line_set = lines isa Integer ? Set([Int(lines)]) : Set(Int.(collect(lines)))
-        push_selection!(selections, TestSelection(file = file, patterns = Any[lines], filter_lines = line_set))
+        selection_patterns = line_patterns_for_selection(lines)
+        push_selection!(selections, TestSelection(file = file, patterns = selection_patterns.patterns, filter_lines = selection_patterns.filter_lines))
     end
     for pair in expression_patterns
         file = selected_file_from_map(reachability, cfg, first(pair), entry)

@@ -164,3 +164,44 @@ end
     @test endswith(selection.file, joinpath("test", "runtests.jl"))
     @test selection.patterns == Any["selected testset", "other testset"]
 end
+
+@testset "vector line selections execute selected tests" begin
+    mktempdir() do root
+        make_planning_fixture(
+            root;
+            runtests = """
+            using Test
+            include("selection.jl")
+            """,
+            files = Dict(
+                "selection.jl" => """
+                using Test
+
+                @testset "first selected" begin
+                    @test true
+                end
+
+                @testset "unselected" begin
+                    @test false
+                end
+
+                @testset "second selected" begin
+                    @test true
+                end
+                """,
+            ),
+        )
+        cfg = WarmTestRunner.make_config(pkgroot = root)
+        plans = WarmTestRunner.build_execution_plans(cfg; line_patterns = ["selection.jl" => [4, 12]])
+        selection = only(only(plans).selections)
+        @test selection.patterns == Any[4, 12]
+        @test selection.filter_lines == Set([4, 12])
+
+        result = WarmTestRunner.execute_plan(only(plans); topmodule = Module(:ExecutionPlanningVectorLines))
+
+        @test result.status == :passed
+        @test occursin("first selected", result.stdout)
+        @test occursin("second selected", result.stdout)
+        @test !occursin("unselected", result.stdout)
+    end
+end
