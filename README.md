@@ -242,8 +242,10 @@ ENV["MY_TEST_MODE"] = "warm"
 
 ## Revise 連携
 
-`serve(use_revise = true)` は各 worker の bootstrap で `Revise` を読み込みます。
+`Revise` 連携はデフォルトで有効です。`serve()` は各 worker の bootstrap で `Revise` を読み込みます。
 読み込み順は環境 activation、`Revise`、対象パッケージ preload、`test/warmtest_bootstrap.jl` です。
+
+無効化したい場合は `serve(use_revise = false)` または `run(use_revise = false)` を指定してください。
 
 `Revise` の状態は worker ごとに独立しています。macro 展開、generated function、constant の再定義などは追跡しきれない場合があるため、warm state が疑わしい場合は `run(fresh = true)` で worker pool を作り直してください。
 
@@ -257,7 +259,7 @@ WarmTestRunner.serve(
     jobs = 4,
     threads_per_worker = 1,
     use_testenv = true,
-    use_revise = false,
+    use_revise = true,
     preload_package = true,
     startup_file = false,
 )
@@ -267,7 +269,7 @@ WarmTestRunner.serve(
 - `jobs`: worker 数
 - `threads_per_worker`: 各 worker の Julia thread 数
 - `use_testenv`: `TestEnv.activate(pkgroot)` を試す
-- `use_revise`: worker 起動時に `Revise` を読み込む
+- `use_revise`: worker 起動時に `Revise` を読み込む。デフォルトは `true`
 - `preload_package`: worker 起動時に対象パッケージを `using` する
 - `startup_file`: worker 起動時に Julia startup file を読む
 

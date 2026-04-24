@@ -24,7 +24,7 @@ Practical summary:
 - `changed_only` is implemented as a runtime selection flag.
 - `watch()` is implemented for debounced source/test path monitoring.
 - `output_format = :json` is implemented for machine-readable run results.
-- `use_revise = true` loads `Revise.jl` during worker bootstrap.
+- `use_revise` defaults to `true` and loads `Revise.jl` during worker bootstrap.
 - When Git change detection is unavailable or the package is not in a usable Git repo, changed-only selection falls back to the full discovered test set.
 - Several "full spec" features are still intentionally deferred.
 - The next highest-leverage public API gap is richer test filtering beyond explicit
@@ -68,8 +68,9 @@ Current behavior:
 - `stop()` sends a stop request and returns after the controller acknowledges it.
 - `watch()` monitors existing source/test paths, debounces filesystem events, and reruns
   through the existing warm runner.
-- `serve(...; use_revise = true)` loads `Revise.jl` in each worker after environment
-  activation and before package preload and `test/warmtest_bootstrap.jl`.
+- `serve(...)` loads `Revise.jl` in each worker after environment activation and before
+  package preload and `test/warmtest_bootstrap.jl` by default. Pass
+  `use_revise = false` to disable it.
 
 Important note:
 
@@ -86,7 +87,7 @@ Implemented:
 - Registry files under `WARMTESTRUNNER_HOME` / default warmtestrunner home
 - Persistent warm worker pool using `Malt.Worker`
 - Worker bootstrap with package/test environment activation
-- Optional `Revise.jl` loading during worker bootstrap when `use_revise = true`
+- Default `Revise.jl` loading during worker bootstrap unless `use_revise = false`
 - Optional bootstrap hook via `test/warmtest_bootstrap.jl`
 - Per-test-file execution in a shared worker-local module
 - File discovery under `test/`
@@ -145,7 +146,7 @@ The current test suite covers:
 - public `retry_crashed` crash-recovery control
 - stale registry replacement
 - daemon request error handling
-- optional `Revise.jl` worker bootstrap loading
+- default `Revise.jl` worker bootstrap loading with explicit opt-out
 - active-run `status()`
 - active-run `stop()`
 - public `watch()`

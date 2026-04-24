@@ -137,7 +137,7 @@ serve(;
     jobs::Int = Sys.CPU_THREADS,
     threads_per_worker::Int = 1,
     use_testenv::Bool = true,
-    use_revise::Bool = false,
+    use_revise::Bool = true,
     preload_package::Bool = true,
     startup_file::Bool = false,
     check_bounds::Union{Bool, Nothing} = nothing,
@@ -288,7 +288,7 @@ Bootstrap runs once per worker and follows this order:
 1. `cd(pkgroot)`
 2. `using TestEnv` if `use_testenv == true`
 3. `TestEnv.activate(pkgroot)` or equivalent activation logic
-4. `using Revise` if `use_revise == true`
+4. `using Revise` if `use_revise == true` (default)
 5. `using TargetPackage` if `preload_package == true`
 6. execute a user preload hook if present
 
@@ -503,9 +503,9 @@ The MVP may use a simplified rule:
 
 ### 8.1 `Revise` Integration
 
-If `use_revise == true`, workers load `Revise` during bootstrap. This is intended to
-improve the local edit-run cycle, but it does not guarantee perfect tracking of all code
-changes.
+Workers load `Revise` during bootstrap by default. Passing `use_revise = false`
+disables this integration. Revise is intended to improve the local edit-run cycle, but
+it does not guarantee perfect tracking of all code changes.
 
 Known caveats:
 

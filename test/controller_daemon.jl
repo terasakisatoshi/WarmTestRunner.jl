@@ -414,11 +414,11 @@ end
     end
 end
 
-@testset "daemon with use_revise=true can be reused by matching calls" begin
+@testset "daemon with default use_revise can be reused by matching calls" begin
     mktempdir() do tmp
         withenv("WARMTESTRUNNER_HOME" => tmp) do
             cd(FIXTURE_ROOT) do
-                handle = WarmTestRunner.serve(jobs = 1, use_revise = true)
+                handle = WarmTestRunner.serve(jobs = 1)
                 stop_err = nothing
                 try
                     reused = WarmTestRunner.serve(jobs = 1)
@@ -443,11 +443,11 @@ end
     end
 end
 
-@testset "explicit use_revise mismatch is rejected for live daemon reuse" begin
+@testset "explicit use_revise=false mismatch is rejected for default daemon reuse" begin
     mktempdir() do tmp
         withenv("WARMTESTRUNNER_HOME" => tmp) do
             cd(FIXTURE_ROOT) do
-                WarmTestRunner.serve(jobs = 1, use_revise = true)
+                WarmTestRunner.serve(jobs = 1)
                 stop_err = nothing
                 try
                     @test_throws ArgumentError WarmTestRunner.serve(jobs = 1, use_revise = false)

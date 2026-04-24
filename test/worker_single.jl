@@ -72,8 +72,8 @@ end
     end
 end
 
-@testset "single malt worker loads Revise when requested" begin
-    cfg = WarmTestRunner.make_config(pkgroot = FIXTURE_ROOT, jobs = 1, use_revise = true)
+@testset "single malt worker loads Revise by default" begin
+    cfg = WarmTestRunner.make_config(pkgroot = FIXTURE_ROOT, jobs = 1)
     worker = WarmTestRunner.start_worker(cfg; id = 5)
 
     try
@@ -82,6 +82,21 @@ end
         @test Malt.remote_eval_fetch(worker.proc, :(isdefined(Main, :Revise))) === true
         @test Malt.remote_eval_fetch(worker.proc, :(Main.WARMTEST_REVISE_LOADED)) === true
         @test Malt.remote_eval_fetch(worker.proc, :(Main.WARMTEST_ACTIVATION_STRATEGY)) == :pkg_activate_fallback
+    finally
+        WarmTestRunner.stop_worker!(worker)
+        @test worker.state == :stopped
+    end
+end
+
+@testset "single malt worker skips Revise when explicitly disabled" begin
+    cfg = WarmTestRunner.make_config(pkgroot = FIXTURE_ROOT, jobs = 1, use_revise = false)
+    worker = WarmTestRunner.start_worker(cfg; id = 6)
+
+    try
+        WarmTestRunner.bootstrap_worker!(worker, cfg)
+        @test worker.state == :idle
+        @test Malt.remote_eval_fetch(worker.proc, :(isdefined(Main, :Revise))) === false
+        @test Malt.remote_eval_fetch(worker.proc, :(Main.WARMTEST_REVISE_LOADED)) === false
     finally
         WarmTestRunner.stop_worker!(worker)
         @test worker.state == :stopped
@@ -119,8 +134,8 @@ end
             """,
         )
 
-        cfg = WarmTestRunner.make_config(pkgroot = pkgroot, jobs = 1, use_revise = true, use_testenv = false)
-        worker = WarmTestRunner.start_worker(cfg; id = 6)
+        cfg = WarmTestRunner.make_config(pkgroot = pkgroot, jobs = 1, use_testenv = false)
+        worker = WarmTestRunner.start_worker(cfg; id = 7)
 
         try
             WarmTestRunner.bootstrap_worker!(worker, cfg)
