@@ -6,6 +6,8 @@ using Test
 include("types.jl")
 include("config.jl")
 include("discovery.jl")
+include("execution.jl")
+include("virtual_execution.jl")
 include("results.jl")
 include("sandbox.jl")
 include("worker.jl")
