@@ -54,3 +54,17 @@ Base.@kwdef struct RunSummary
     skipped::Int
     elapsed_total::Float64
 end
+
+function Base.show(io::IO, h::ServerHandle)
+    print(io, "ServerHandle(pid=", h.pid, ", jobs=", h.jobs, ", ", h.server_id, ")")
+    return nothing
+end
+
+function Base.show(io::IO, ::MIME"text/plain", h::ServerHandle)
+    println(io, "ServerHandle")
+    println(io, "  pkgroot: ", h.pkgroot)
+    println(io, "  pid:     ", h.pid)
+    println(io, "  jobs:    ", h.jobs)
+    print(io, "  id:      ", h.server_id)
+    return nothing
+end
