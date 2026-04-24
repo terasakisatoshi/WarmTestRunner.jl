@@ -706,6 +706,50 @@ end
     end
 end
 
+@testset "selector run restarts when live registry record is from an older protocol" begin
+    mktempdir() do tmp
+        withenv("WARMTESTRUNNER_HOME" => tmp) do
+            initial_handle = WarmTestRunner.serve(
+                pkgroot = VIRTUAL_FIXTURE_ROOT,
+                jobs = 1,
+                use_revise = false,
+            )
+
+            record_path = WarmTestRunner.server_record_path(VIRTUAL_FIXTURE_ROOT)
+            record_data = TOML.parsefile(record_path)
+            record_data["protocol_version"] = WarmTestRunner.EXECUTION_PLANS_PROTOCOL_VERSION - 1
+            open(record_path, "w") do io
+                TOML.print(io, record_data)
+            end
+
+            summary = try
+                WarmTestRunner.run(
+                    pkgroot = VIRTUAL_FIXTURE_ROOT,
+                    testsets = ["selected testset"],
+                    jobs = 1,
+                    use_revise = false,
+                )
+            catch err
+                err
+            end
+
+            @test summary isa WarmTestRunner.RunSummary
+            if summary isa WarmTestRunner.RunSummary
+                @test summary.passed == 1
+            end
+
+            current_status = WarmTestRunner.status(pkgroot = VIRTUAL_FIXTURE_ROOT)
+            @test current_status.server_id != initial_handle.server_id
+
+            try
+                WarmTestRunner.stop(pkgroot = VIRTUAL_FIXTURE_ROOT)
+                WarmTestRunner.wait_for_record_gone(VIRTUAL_FIXTURE_ROOT)
+            catch
+            end
+        end
+    end
+end
+
 @testset "serve replaces stale registry records" begin
     mktempdir() do tmp
         withenv("WARMTESTRUNNER_HOME" => tmp) do

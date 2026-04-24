@@ -63,6 +63,10 @@ function ensure_retry_crashed_controller!(pkgroot::AbstractString)
     return ensure_protocol_controller!(pkgroot, RETRY_CRASHED_PROTOCOL_VERSION)
 end
 
+function ensure_execution_plans_controller!(pkgroot::AbstractString)
+    return ensure_protocol_controller!(pkgroot, EXECUTION_PLANS_PROTOCOL_VERSION)
+end
+
 function validate_output_format(output_format::Symbol)
     output_format in (:text, :json) && return output_format
     throw(ArgumentError("output_format must be :text or :json"))
@@ -86,6 +90,7 @@ function run(;
     tests_provided && changed_only && throw(ArgumentError("changed_only cannot be combined with explicit tests"))
     changed_only && rerun_failed && throw(ArgumentError("changed_only cannot be combined with rerun_failed"))
     cfg = make_config(; kwargs...)
+    ensure_execution_plans_controller!(cfg.pkgroot)
     changed_only && ensure_changed_only_controller!(cfg.pkgroot)
     rerun_failed && ensure_rerun_failed_controller!(cfg.pkgroot)
     fresh && ensure_fresh_controller!(cfg.pkgroot)
