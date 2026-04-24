@@ -7,15 +7,19 @@ end
 
 function reachable_file_map(entryfile::AbstractString)
     files = static_included_files(entryfile)
+    return selectable_file_map(files, dirname(entryfile))
+end
+
+function selectable_file_map(files::AbstractVector{<:AbstractString}, base_dir::AbstractString)
     map = Dict{String,Vector{String}}()
     add_mapping!(key::AbstractString, value::AbstractString) = push!(get!(map, String(key), String[]), String(value))
     for file in files
         absolute = abspath(file)
         add_mapping!(absolute, absolute)
         add_mapping!(basename(file), absolute)
-        rel = relpath(file, dirname(entryfile))
+        rel = relpath(file, base_dir)
         add_mapping!(normpath(rel), absolute)
-        add_mapping!(normpath(joinpath(basename(dirname(entryfile)), rel)), absolute)
+        add_mapping!(normpath(joinpath(basename(base_dir), rel)), absolute)
     end
     for values in values(map)
         unique!(values)
@@ -223,6 +227,78 @@ function files_for_testset_pattern(files::AbstractVector{<:AbstractString}, patt
     return matches
 end
 
+function build_file_entry_plans(
+    cfg::RunnerConfig,
+    selected_test_names::Vector{String},
+    selected_testsets::Vector{Any},
+    selected_line_patterns,
+    selected_expression_patterns;
+    changed_only::Bool,
+    rerun_failed::Bool,
+    last_failed::AbstractVector{<:AbstractString},
+)
+    jobs = discover_tests(cfg.pkgroot)
+    files = String[abspath(job.path) for job in jobs]
+    testdir = joinpath(cfg.pkgroot, "test")
+    filemap = selectable_file_map(files, testdir)
+
+    selected_tests = selected_test_names
+    if rerun_failed
+        failed_files = isempty(last_failed) ? String[] : selected_files_from_names(filemap, cfg, String.(last_failed), testdir)
+        if isempty(selected_test_names)
+            selected_tests = collect(failed_files)
+        else
+            explicit_files = selected_files_from_names(filemap, cfg, selected_test_names, testdir)
+            selected_tests = [file for file in explicit_files if file in failed_files]
+        end
+    elseif changed_only
+        selected_tests = [abspath(job.path) for job in discover_changed_tests(cfg.pkgroot)]
+    end
+
+    if isempty(selected_tests) && isempty(selected_testsets) && isempty(selected_line_patterns) && isempty(selected_expression_patterns)
+        (changed_only || rerun_failed) && return ExecutionPlan[]
+        selected_tests = files
+    end
+
+    selections = TestSelection[]
+    for name in selected_tests
+        file = selected_file_from_map(filemap, cfg, name, testdir)
+        push!(selections, TestSelection(file = file, run_all = true))
+    end
+    for pattern in selected_testsets
+        for file in files_for_testset_pattern(files, pattern)
+            push!(selections, TestSelection(file = file, patterns = Any[pattern]))
+        end
+    end
+    for pair in selected_line_patterns
+        file = selected_file_from_map(filemap, cfg, first(pair), testdir)
+        selection_patterns = line_patterns_for_selection(last(pair))
+        push!(selections, TestSelection(file = file, patterns = selection_patterns.patterns, filter_lines = selection_patterns.filter_lines))
+    end
+    for pair in selected_expression_patterns
+        file = selected_file_from_map(filemap, cfg, first(pair), testdir)
+        push!(selections, TestSelection(file = file, patterns = Any[last(pair)]))
+    end
+    if (changed_only || rerun_failed) && isempty(selected_tests)
+        return ExecutionPlan[]
+    end
+
+    plans = ExecutionPlan[]
+    for group in plan_selection_groups(selections)
+        for selection in group
+            push!(
+                plans,
+                ExecutionPlan(
+                    entryfile = selection.file,
+                    selections = [selection],
+                    label = result_path(cfg, selection.file),
+                ),
+            )
+        end
+    end
+    return plans
+end
+
 function build_execution_plans(
     cfg::RunnerConfig;
     tests::Union{Nothing,AbstractVector{<:AbstractString}} = nothing,
@@ -248,15 +324,16 @@ function build_execution_plans(
 
     entry = suite_entry_file(cfg.pkgroot)
     if entry === nothing
-        jobs = build_jobs(cfg; tests = selected_test_names, changed_only, rerun_failed, last_failed)
-        return [
-            ExecutionPlan(
-                entryfile = job.path,
-                selections = [TestSelection(file = job.path, run_all = true)],
-                label = result_path(cfg, job.path),
-            )
-            for job in jobs
-        ]
+        return build_file_entry_plans(
+            cfg,
+            selected_test_names,
+            selected_testsets,
+            selected_line_patterns,
+            selected_expression_patterns;
+            changed_only,
+            rerun_failed,
+            last_failed,
+        )
     end
 
     reachability = reachable_file_map(entry)

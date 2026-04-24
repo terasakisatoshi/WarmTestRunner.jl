@@ -23,6 +23,19 @@ function make_planning_fixture(root::AbstractString; runtests::AbstractString, f
     return root
 end
 
+function make_no_entry_planning_fixture(root::AbstractString; files::Dict{String,String})
+    write_file(joinpath(root, "Project.toml"), """
+    name = "PlanningFixture"
+    uuid = "11111111-1111-1111-1111-111111111111"
+    version = "0.1.0"
+    """)
+    write_file(joinpath(root, "src", "PlanningFixture.jl"), "module PlanningFixture\nend\n")
+    for (path, text) in files
+        write_file(joinpath(root, "test", path), text)
+    end
+    return root
+end
+
 @testset "default entry is runtests" begin
     cfg = WarmTestRunner.make_config(pkgroot = PLANNING_FIXTURE_ROOT)
     plans = WarmTestRunner.build_execution_plans(cfg)
@@ -391,5 +404,60 @@ end
         @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; changed_only = true, testsets = ["not a testset"])
         @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; changed_only = true, line_patterns = ["alpha.jl" => 0])
         @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; changed_only = true, expression_patterns = ["missing.jl" => "x"])
+    end
+end
+
+@testset "planning without runtests validates and applies selectors" begin
+    mktempdir() do root
+        make_no_entry_planning_fixture(
+            root;
+            files = Dict(
+                "alpha.jl" => """
+                using Test
+
+                @testset "alpha selected" begin
+                    @test true
+                end
+
+                @testset "alpha unselected" begin
+                    @test false
+                end
+                """,
+                "beta.jl" => """
+                using Test
+
+                @testset "beta selected" begin
+                    @test true
+                end
+                """,
+            ),
+        )
+        cfg = WarmTestRunner.make_config(pkgroot = root)
+
+        @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; tests = ["missing.jl"])
+        @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; testsets = ["missing testset"])
+        @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; line_patterns = ["missing.jl" => 1])
+        @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; expression_patterns = ["missing.jl" => "alpha selected"])
+
+        plans = WarmTestRunner.build_execution_plans(cfg; tests = ["alpha.jl"])
+        @test length(plans) == 1
+        @test endswith(only(plans).entryfile, joinpath("test", "alpha.jl"))
+        @test only(only(plans).selections).run_all
+
+        plans = WarmTestRunner.build_execution_plans(cfg; testsets = ["alpha selected"])
+        @test length(plans) == 1
+        @test endswith(only(plans).entryfile, joinpath("test", "alpha.jl"))
+        result = WarmTestRunner.execute_plan(only(plans); topmodule = Module(:ExecutionPlanningNoEntryName))
+        @test result.status == :passed
+        @test occursin("alpha selected", result.stdout)
+        @test !occursin("alpha unselected", result.stdout)
+
+        plans = WarmTestRunner.build_execution_plans(cfg; line_patterns = ["alpha.jl" => 4])
+        @test length(plans) == 1
+        @test only(only(plans).selections).filter_lines == Set([4])
+
+        plans = WarmTestRunner.build_execution_plans(cfg; expression_patterns = ["alpha.jl" => "alpha selected"])
+        @test length(plans) == 1
+        @test only(only(plans).selections).patterns == Any["alpha selected"]
     end
 end
