@@ -428,6 +428,10 @@ function build_execution_plans(
     failed_files = Set{String}()
     if rerun_failed
         union!(failed_files, filter_selected_files_from_names(reachability, cfg, String.(last_failed), entry))
+        suite_entry_failed = abspath(entry) in failed_files
+        if suite_entry_failed && explicit_selector
+            failed_files = Set(all_reachable_files(reachability))
+        end
         if isempty(selected_test_names)
             selected_tests = explicit_selector ? String[] : collect(failed_files)
         else

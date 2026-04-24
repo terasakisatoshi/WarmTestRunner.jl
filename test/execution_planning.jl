@@ -564,6 +564,47 @@ end
     )
 end
 
+@testset "rerun_failed can narrow a failed suite entry with explicit selectors" begin
+    cfg = WarmTestRunner.make_config(pkgroot = PLANNING_FIXTURE_ROOT)
+
+    plans = WarmTestRunner.build_execution_plans(
+        cfg;
+        rerun_failed = true,
+        last_failed = ["test/runtests.jl"],
+        tests = ["errors.jl"],
+    )
+    @test length(plans) == 1
+    @test only(plans).label == "test/errors.jl"
+
+    plans = WarmTestRunner.build_execution_plans(
+        cfg;
+        rerun_failed = true,
+        last_failed = ["test/runtests.jl"],
+        testsets = ["failure testset"],
+    )
+    @test length(plans) == 1
+    @test only(plans).label == "test/runtests.jl"
+    @test endswith(only(only(plans).selections).file, joinpath("test", "errors.jl"))
+
+    plans = WarmTestRunner.build_execution_plans(
+        cfg;
+        rerun_failed = true,
+        last_failed = ["test/runtests.jl"],
+        line_patterns = ["errors.jl" => 8],
+    )
+    @test length(plans) == 1
+    @test endswith(only(only(plans).selections).file, joinpath("test", "errors.jl"))
+
+    plans = WarmTestRunner.build_execution_plans(
+        cfg;
+        rerun_failed = true,
+        last_failed = ["test/runtests.jl"],
+        expression_patterns = ["errors.jl" => "failure testset"],
+    )
+    @test length(plans) == 1
+    @test endswith(only(only(plans).selections).file, joinpath("test", "errors.jl"))
+end
+
 @testset "planning without runtests validates and applies selectors" begin
     mktempdir() do root
         make_no_entry_planning_fixture(
