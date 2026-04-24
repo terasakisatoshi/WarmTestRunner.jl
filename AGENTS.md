@@ -8,9 +8,7 @@
 ## Build, Test, and Development Commands
 `julia --project=. -e 'using Pkg; Pkg.instantiate()'` installs dependencies from `Project.toml` and `Manifest.toml`.
 
-`julia --project=. --startup-file=no -e 'include("test/runtests.jl")'` runs the repository test suite exactly as documented in `STATUS.md`.
-
-`julia --project=. --startup-file=no -e 'using Pkg; Pkg.test()'` is the final clean-room verification step before merging.
+`julia --project=. --startup-file=no -e 'using Pkg; Pkg.test()'` runs the repository test suite in the clean test environment and is the standard verification step before merging. Running `include("test/runtests.jl")` separately is usually redundant.
 
 `julia --project=. -e 'using WarmTestRunner; WarmTestRunner.serve(); WarmTestRunner.run()'` starts or reuses the daemon-backed worker pool for local iteration.
 

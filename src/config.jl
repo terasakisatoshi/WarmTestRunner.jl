@@ -4,7 +4,7 @@ Base.@kwdef struct RunnerConfig
     jobs::Int = 1
     threads_per_worker::Int = 1
     use_testenv::Bool = true
-    use_revise::Bool = false
+    use_revise::Bool = true
     preload_package::Bool = true
     startup_file::Bool = false
     color::Bool = true
