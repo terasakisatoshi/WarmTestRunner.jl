@@ -285,6 +285,37 @@ end
     end
 end
 
+@testset "selected include inside wrapper does not run sibling tests" begin
+    mktempdir() do root
+        make_planning_fixture(
+            root;
+            runtests = """
+            using Test
+
+            @testset "root wrapper" begin
+                @test false
+                include("target.jl")
+            end
+            """,
+            files = Dict(
+                "target.jl" => """
+                using Test
+
+                @testset "target selected" begin
+                    @test true
+                end
+                """,
+            ),
+        )
+        cfg = WarmTestRunner.make_config(pkgroot = root)
+        plan = only(WarmTestRunner.build_execution_plans(cfg; tests = ["target.jl"]))
+        result = WarmTestRunner.execute_plan(plan; topmodule = Module(:ExecutionPlanningWrapperSibling))
+        @test result.status == :passed
+        @test occursin("target selected", result.stdout)
+        @test !any(d -> d.file == joinpath(root, "test", "runtests.jl"), result.diagnostics)
+    end
+end
+
 @testset "multiple entry selections keep all patterns" begin
     cfg = WarmTestRunner.make_config(pkgroot = PLANNING_FIXTURE_ROOT)
     plans = WarmTestRunner.build_execution_plans(cfg; testsets = ["selected testset", "other testset"])
@@ -392,10 +423,18 @@ end
     cfg = WarmTestRunner.make_config(pkgroot = PLANNING_FIXTURE_ROOT)
     @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; line_patterns = ["selection.jl" => Int[]])
     @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; line_patterns = ["selection.jl" => 1.5])
+    @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; line_patterns = Any["selection.jl"])
+    @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; line_patterns = Any[123 => 1])
     @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; line_patterns = ["selection.jl" => 0])
     @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; line_patterns = ["selection.jl" => -1])
     @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; line_patterns = ["selection.jl" => -1:1])
     @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; line_patterns = ["selection.jl" => [3, 0]])
+end
+
+@testset "invalid expression selectors are rejected" begin
+    cfg = WarmTestRunner.make_config(pkgroot = PLANNING_FIXTURE_ROOT)
+    @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; expression_patterns = Any["selection.jl"])
+    @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; expression_patterns = Any[123 => "selected testset"])
 end
 
 @testset "explicit empty selectors are rejected" begin

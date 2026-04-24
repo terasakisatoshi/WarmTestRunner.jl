@@ -181,6 +181,18 @@ function assert_nonempty_selector(name::Symbol, selector)
     return nothing
 end
 
+function selector_pairs(name::Symbol, selector)
+    selector === nothing && return Pair{String,Any}[]
+    pairs = Pair{String,Any}[]
+    for item in selector
+        item isa Pair || throw(ArgumentError("$(name) entries must be pairs of test file and selector; got $(repr(item))"))
+        file = first(item)
+        file isa AbstractString || throw(ArgumentError("$(name) entries must use a test file string; got $(repr(file))"))
+        push!(pairs, String(file) => last(item))
+    end
+    return pairs
+end
+
 function testset_macro_name(@nospecialize(expr))
     Meta.isexpr(expr, :macrocall) || return nothing
     isempty(expr.args) && return nothing
@@ -331,8 +343,8 @@ function build_execution_plans(
 
     selected_test_names = tests === nothing ? String[] : String.(tests)
     selected_testsets = testsets === nothing ? Any[] : Any[testsets...]
-    selected_line_patterns = line_patterns === nothing ? Pair{String,Any}[] : line_patterns
-    selected_expression_patterns = expression_patterns === nothing ? Pair{String,Any}[] : expression_patterns
+    selected_line_patterns = selector_pairs(:line_patterns, line_patterns)
+    selected_expression_patterns = selector_pairs(:expression_patterns, expression_patterns)
 
     !isempty(selected_test_names) && changed_only && throw(ArgumentError("changed_only cannot be combined with explicit tests"))
     changed_only && rerun_failed && throw(ArgumentError("changed_only cannot be combined with rerun_failed"))

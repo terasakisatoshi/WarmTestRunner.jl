@@ -237,6 +237,15 @@ function includes_selected_target(interp::WarmTestInterpreter, node::JS.SyntaxNo
     return false
 end
 
+function include_reaches_selected_target(interp::WarmTestInterpreter, included_path::AbstractString)
+    targets = selected_target_files(interp)
+    isempty(targets) && return false
+    for included_file in static_included_files(included_path)
+        abspath(included_file) in targets && return true
+    end
+    return false
+end
+
 function evaluate_test_expr!(interp::WarmTestInterpreter, context::Module, expr, lnn::LineNumberNode)
     expr = Expr(:block, expr, lnn)
     lwr = Meta.lower(context, expr)
@@ -249,6 +258,47 @@ function evaluate_test_expr!(interp::WarmTestInterpreter, context::Module, expr,
 
     frame = JI.Frame(context, src)
     JI.finish!(interp, frame, #=istoplevel=#true)
+    return nothing
+end
+
+function evaluate_setup_expr!(interp::WarmTestInterpreter, context::Module, expr, lnn::LineNumberNode)
+    try
+        lwr = Meta.lower(context, expr)
+
+        if !Meta.isexpr(lwr, :thunk)
+            Core.eval(context, lwr)
+            return nothing
+        end
+        src = only(lwr.args)::CodeInfo
+
+        frame = JI.Frame(context, src)
+        JI.finish!(interp, frame, #=istoplevel=#true)
+    catch err
+        record_execution_diagnostic!(interp.filename, lnn.line, :setup_error, err)
+        rethrow()
+    end
+    return nothing
+end
+
+function execute_selected_includes!(interp::WarmTestInterpreter, context::Module, node::JS.SyntaxNode)
+    expr = try
+        Expr(node)
+    catch
+        return nothing
+    end
+    if is_static_include_call(expr)
+        included_file = normpath(joinpath(dirname(interp.filename), last(expr.args)))
+        if include_reaches_selected_target(interp, included_file)
+            lnn = LineNumberNode(JS.source_line(node), interp.filename)
+            evaluate_setup_expr!(interp, context, expr, lnn)
+        end
+        return nothing
+    end
+    expr isa Expr || return nothing
+    is_static_executable_container(expr) || return nothing
+    for index in 1:JS.numchildren(node)
+        execute_selected_includes!(interp, context, node[index])
+    end
     return nothing
 end
 
@@ -502,7 +552,7 @@ function _virtual_run(interp::WarmTestInterpreter, sntop::JS.SyntaxNode)
         if is_test_expr && run_all_file
             evaluate_test_expr!(interp, context, expr, lnn)
         elseif is_test_expr && includes_selected_target(interp, node)
-            evaluate_test_expr!(interp, context, expr, lnn)
+            execute_selected_includes!(interp, context, node)
         elseif is_test_expr && !isnothing(patterns)
             # For @testset and @test, use pattern matching
             lines = Set{Int}()
@@ -531,21 +581,7 @@ function _virtual_run(interp::WarmTestInterpreter, sntop::JS.SyntaxNode)
             # Note: We use `JI.finish!` here instead of `Core.eval`
             # to ensure proper handling of `include` statements through our
             # custom `evaluate_call!` implementation.
-            try
-                lwr = Meta.lower(context, expr)
-
-                if !Meta.isexpr(lwr, :thunk)
-                    Core.eval(context, lwr)
-                    continue
-                end
-                src = only(lwr.args)::CodeInfo
-
-                frame = JI.Frame(context, src)
-                JI.finish!(interp, frame, #=istoplevel=#true)
-            catch err
-                record_execution_diagnostic!(interp.filename, JS.source_line(node), :setup_error, err)
-                rethrow()
-            end
+            evaluate_setup_expr!(interp, context, expr, lnn)
         end
     end
 end
