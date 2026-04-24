@@ -454,9 +454,14 @@ end
 @testset "explicit empty selectors are rejected" begin
     cfg = WarmTestRunner.make_config(pkgroot = PLANNING_FIXTURE_ROOT)
     @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; tests = String[])
+    @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; tests = Any[123])
+    @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; tests = 123)
     @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; testsets = Any[])
+    @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; testsets = 123)
     @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; line_patterns = Pair{String,Any}[])
+    @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; line_patterns = 123)
     @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; expression_patterns = Pair{String,Any}[])
+    @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; expression_patterns = 123)
 end
 
 @testset "empty changed and rerun selectors still validate explicit selectors" begin

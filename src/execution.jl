@@ -177,8 +177,19 @@ end
 
 function assert_nonempty_selector(name::Symbol, selector)
     selector === nothing && return nothing
+    applicable(iterate, selector) || throw(ArgumentError("$(name) selection must be a collection"))
     isempty(selector) && throw(ArgumentError("$(name) selection must not be empty"))
     return nothing
+end
+
+function selector_strings(name::Symbol, selector)
+    selector === nothing && return String[]
+    values = String[]
+    for item in selector
+        item isa AbstractString || throw(ArgumentError("$(name) entries must be test file strings; got $(repr(item))"))
+        push!(values, String(item))
+    end
+    return values
 end
 
 function selector_pairs(name::Symbol, selector)
@@ -328,10 +339,10 @@ end
 
 function build_execution_plans(
     cfg::RunnerConfig;
-    tests::Union{Nothing,AbstractVector{<:AbstractString}} = nothing,
-    testsets::Union{Nothing,AbstractVector} = nothing,
-    line_patterns::Union{Nothing,AbstractVector} = nothing,
-    expression_patterns::Union{Nothing,AbstractVector} = nothing,
+    tests = nothing,
+    testsets = nothing,
+    line_patterns = nothing,
+    expression_patterns = nothing,
     changed_only::Bool = false,
     rerun_failed::Bool = false,
     last_failed::AbstractVector{<:AbstractString} = String[],
@@ -341,7 +352,7 @@ function build_execution_plans(
     assert_nonempty_selector(:line_patterns, line_patterns)
     assert_nonempty_selector(:expression_patterns, expression_patterns)
 
-    selected_test_names = tests === nothing ? String[] : String.(tests)
+    selected_test_names = selector_strings(:tests, tests)
     selected_testsets = testsets === nothing ? Any[] : Any[testsets...]
     selected_line_patterns = selector_pairs(:line_patterns, line_patterns)
     selected_expression_patterns = selector_pairs(:expression_patterns, expression_patterns)
