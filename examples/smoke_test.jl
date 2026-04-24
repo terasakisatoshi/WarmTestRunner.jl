@@ -42,11 +42,18 @@ mktempdir(prefix = "warmtestrunner-smoke-") do tmp
     )
 
     write(
-        joinpath(pkgroot, "test", "basic.jl"),
+        joinpath(pkgroot, "test", "runtests.jl"),
         """
         using Test
         using SmokeTarget
 
+        include("basic.jl")
+        """,
+    )
+
+    write(
+        joinpath(pkgroot, "test", "basic.jl"),
+        """
         @test addone(1) == 2
         """,
     )
