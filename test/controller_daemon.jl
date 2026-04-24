@@ -609,18 +609,18 @@ end
                     @test isempty(empty_before.results)
 
                     first = WarmTestRunner.run(tests = ["fail.jl", "pass.jl"])
-                    @test [basename(result.path) for result in first.results] == ["fail.jl", "pass.jl"]
+                    @test [result.path for result in first.results] == ["test/fail.jl", "test/pass.jl"]
                     @test getfield.(first.results, :status) == [:failed, :passed]
 
                     status_after_first = WarmTestRunner.status()
-                    @test basename.(status_after_first.last_failed) == ["fail.jl"]
+                    @test status_after_first.last_failed == ["test/fail.jl"]
 
                     rerun = WarmTestRunner.run(rerun_failed = true)
-                    @test [basename(result.path) for result in rerun.results] == ["fail.jl"]
+                    @test [result.path for result in rerun.results] == ["test/fail.jl"]
                     @test getfield.(rerun.results, :status) == [:failed]
 
                     filtered = WarmTestRunner.run(tests = ["pass.jl", "fail.jl"], rerun_failed = true)
-                    @test [basename(result.path) for result in filtered.results] == ["fail.jl"]
+                    @test [result.path for result in filtered.results] == ["test/fail.jl"]
                     @test getfield.(filtered.results, :status) == [:failed]
 
                     cleared = WarmTestRunner.run(tests = ["pass.jl"])
