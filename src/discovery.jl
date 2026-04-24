@@ -1,3 +1,5 @@
+using JuliaSyntax: JuliaSyntax as JS
+
 const WARMTEST_TAG_SCAN_LINES = 5
 const WARMTEST_DIRECTIVE_PREFIX = "# warmtest:"
 const WARMTEST_EXCLUDED_TEST_FILES = Set(["runtests.jl", "warmtest_bootstrap.jl"])
@@ -91,6 +93,29 @@ function discover_changed_tests(pkgroot::AbstractString)
     ]
 end
 
+function static_include_paths(text::AbstractString; filename::AbstractString = "none")
+    stream = JS.ParseStream(text)
+    JS.parse!(stream; rule = :all)
+    isempty(stream.diagnostics) || return String[]
+    top = JS.build_tree(JS.SyntaxNode, stream; filename)
+    paths = String[]
+    stack = JS.SyntaxNode[top]
+    while !isempty(stack)
+        node = pop!(stack)
+        try
+            expr = Expr(node)
+            if Meta.isexpr(expr, :call) && length(expr.args) == 2 && expr.args[1] == :include && expr.args[2] isa String
+                push!(paths, expr.args[2])
+            end
+        catch
+        end
+        for index in JS.numchildren(node):-1:1
+            push!(stack, node[index])
+        end
+    end
+    return paths
+end
+
 function static_included_files(entryfile::AbstractString)
     entry = abspath(entryfile)
     seen = Set{String}()
@@ -102,8 +127,8 @@ function static_included_files(entryfile::AbstractString)
         push!(ordered, path)
         isfile(path) || return
         text = read(path, String)
-        for matchobj in eachmatch(r"include\(\"([^\"]+)\"\)", text)
-            child = normpath(joinpath(dirname(path), matchobj.captures[1]))
+        for included_path in static_include_paths(text; filename = path)
+            child = normpath(joinpath(dirname(path), included_path))
             visit(child)
         end
     end

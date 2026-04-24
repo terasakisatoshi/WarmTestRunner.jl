@@ -5,41 +5,48 @@ function suite_entry_file(pkgroot::AbstractString)
     return isfile(entry) ? entry : nothing
 end
 
-function normalize_test_file(cfg::RunnerConfig, name::AbstractString)
-    path = job_path_from_test_name(cfg, name)
-    isfile(path) && return abspath(path)
-    throw(ArgumentError("selected test file $(repr(name)) does not exist under $(joinpath(cfg.pkgroot, "test"))"))
-end
-
 function reachable_file_map(entryfile::AbstractString)
     files = static_included_files(entryfile)
-    map = Dict{String,String}()
+    map = Dict{String,Vector{String}}()
+    add_mapping!(key::AbstractString, value::AbstractString) = push!(get!(map, String(key), String[]), String(value))
     for file in files
         absolute = abspath(file)
-        map[absolute] = absolute
-        map[basename(file)] = absolute
+        add_mapping!(absolute, absolute)
+        add_mapping!(basename(file), absolute)
         rel = relpath(file, dirname(entryfile))
-        map[normpath(rel)] = absolute
-        map[normpath(joinpath(basename(dirname(entryfile)), rel))] = absolute
+        add_mapping!(normpath(rel), absolute)
+        add_mapping!(normpath(joinpath(basename(dirname(entryfile)), rel)), absolute)
+    end
+    for values in values(map)
+        unique!(values)
     end
     return map
 end
 
-function selected_file_from_map(map::Dict{String,String}, cfg::RunnerConfig, name::AbstractString, entryfile::AbstractString)
-    candidates = String[
-        String(name),
-        normpath(String(name)),
-        normpath(joinpath("test", String(name))),
-        basename(String(name)),
-    ]
+function has_path_separator(path::AbstractString)
+    return occursin("/", path) || occursin("\\", path)
+end
+
+function selected_file_from_map(map::Dict{String,Vector{String}}, cfg::RunnerConfig, name::AbstractString, entryfile::AbstractString)
+    raw = String(name)
+    path_qualified = isabspath(raw) || has_path_separator(raw)
+    candidates = String[raw, normpath(raw)]
+    path_qualified || push!(candidates, basename(raw))
+    startswith(normpath(raw), "test$(Base.Filesystem.path_separator)") || push!(candidates, normpath(joinpath("test", raw)))
     absolute = abspath(job_path_from_test_name(cfg, name))
     push!(candidates, absolute)
-    for candidate in candidates
+    for candidate in unique(candidates)
         if haskey(map, candidate)
-            return map[candidate]
+            matches = map[candidate]
+            length(matches) == 1 && return only(matches)
+            throw(ArgumentError("selected test file $(repr(name)) is ambiguous; use a path relative to $(joinpath("test"))"))
         end
     end
     throw(ArgumentError("selected test file $(repr(name)) is not reachable from $(relpath(entryfile, cfg.pkgroot))"))
+end
+
+function selected_files_from_names(map::Dict{String,Vector{String}}, cfg::RunnerConfig, names::AbstractVector{<:AbstractString}, entryfile::AbstractString)
+    return [selected_file_from_map(map, cfg, name, entryfile) for name in names]
 end
 
 function push_selection!(selections::Vector{TestSelection}, selection::TestSelection)
@@ -95,18 +102,28 @@ function build_execution_plans(
         ]
     end
 
+    reachability = reachable_file_map(entry)
     selected_tests = String.(tests)
     if rerun_failed
-        selected_tests = isempty(tests) ? String.(last_failed) : [path for path in tests if path in last_failed]
+        failed_files = Set(selected_files_from_names(reachability, cfg, String.(last_failed), entry))
+        if isempty(tests)
+            selected_tests = collect(failed_files)
+        else
+            explicit_files = selected_files_from_names(reachability, cfg, tests, entry)
+            selected_tests = [file for file in explicit_files if file in failed_files]
+        end
     elseif changed_only
         selected_tests = [result_path(cfg, job.path) for job in discover_changed_tests(cfg.pkgroot)]
+    end
+
+    if (changed_only || rerun_failed) && isempty(selected_tests)
+        return ExecutionPlan[]
     end
 
     if isempty(selected_tests) && isempty(testsets) && isempty(line_patterns) && isempty(expression_patterns)
         return [ExecutionPlan(entryfile = entry, run_all = true, label = "test/runtests.jl")]
     end
 
-    reachability = reachable_file_map(entry)
     selections = TestSelection[]
     for name in selected_tests
         file = selected_file_from_map(reachability, cfg, name, entry)
