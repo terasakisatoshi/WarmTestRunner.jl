@@ -77,6 +77,7 @@ function push_selection!(selections::Vector{TestSelection}, selection::TestSelec
 end
 
 function push_line_pattern!(patterns::Vector{Any}, filter_lines::Set{Int}, line::Integer)
+    line >= 1 || throw(ArgumentError("line selections must be positive source line numbers; got $(repr(line))"))
     normalized = Int(line)
     push!(patterns, normalized)
     push!(filter_lines, normalized)
@@ -85,6 +86,9 @@ end
 
 function push_line_pattern!(patterns::Vector{Any}, filter_lines::Set{Int}, range::UnitRange{<:Integer})
     isempty(range) && throw(ArgumentError("line selection must not be empty"))
+    for line in range
+        line >= 1 || throw(ArgumentError("line selections must be positive source line numbers; got $(repr(line)) in $(repr(range))"))
+    end
     push!(patterns, range)
     union!(filter_lines, Int.(range))
     return nothing

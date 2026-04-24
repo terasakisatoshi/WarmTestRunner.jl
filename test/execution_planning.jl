@@ -210,4 +210,8 @@ end
     cfg = WarmTestRunner.make_config(pkgroot = PLANNING_FIXTURE_ROOT)
     @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; line_patterns = ["selection.jl" => Int[]])
     @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; line_patterns = ["selection.jl" => 1.5])
+    @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; line_patterns = ["selection.jl" => 0])
+    @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; line_patterns = ["selection.jl" => -1])
+    @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; line_patterns = ["selection.jl" => -1:1])
+    @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; line_patterns = ["selection.jl" => [3, 0]])
 end
