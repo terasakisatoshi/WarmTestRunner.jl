@@ -11,6 +11,9 @@ using MacroTools: MacroTools
 const BacktraceElm = Union{Ptr{Nothing},Base.InterpreterIP}
 const ExceptionFrame = @NamedTuple{exception::Any,backtrace::Vector{BacktraceElm}}
 
+const warmtest_errors_and_fails = IdDict{Any, Vector{Any}}()
+const last_warmtest_testset_result = Ref{Union{Nothing,Test.DefaultTestSet}}(nothing)
+
 struct WarmTestInterpreter <: JI.Interpreter
     patterns::Dict{String,Vector{Any}}
     filter_lines::Dict{String,Set{Int}}
@@ -33,6 +36,82 @@ function WarmTestInterpreter(
 end
 
 const current_warmtest_interpreter = Ref{Union{Nothing,WarmTestInterpreter}}(nothing)
+
+struct WarmTestTestSet <: Test.AbstractTestSet
+    dts::Test.DefaultTestSet
+    function WarmTestTestSet(args...; options...)
+        return new(Test.DefaultTestSet(args...; options...))
+    end
+end
+
+struct WrappedString
+    value::String
+end
+Base.show(io::IO, ws::WrappedString) = print(io, ws.value)
+
+function Test.record(ts::WarmTestTestSet, @nospecialize res)
+    interp = current_warmtest_interpreter[]
+    if interp !== nothing && res isa Test.Threw
+        (; exception, source) = res
+        excs = copy(interp.current_exceptions)
+        res = Test.Threw(exception, excs, source)
+        warmtest_errors_and_fails[res] = excs
+        empty!(interp.current_exceptions)
+    elseif interp !== nothing && res isa Test.Error
+        (; test_type, orig_expr, value, source) = res
+        excs = copy(interp.current_exceptions)
+        res = Test.Error(test_type, orig_expr, WrappedString(value), Base.ExceptionStack(excs), source)
+        warmtest_errors_and_fails[res] = excs
+        empty!(interp.current_exceptions)
+    elseif res isa Test.Fail || res isa Test.Error
+        warmtest_errors_and_fails[res] = Any[]
+    end
+    Test.record(ts.dts, res)
+    return res
+end
+
+function Test.finish(ts::WarmTestTestSet)
+    last_warmtest_testset_result[] = ts.dts
+    if Test.get_testset_depth() != 0
+        Test.record(Test.get_testset(), ts.dts)
+    else
+        Test.finish(ts.dts)
+    end
+    return ts.dts
+end
+
+const JULIAINTERPRETER_INTERPRET_FILE = let
+    jlfile = pathof(JI)::String
+    Symbol(normpath(jlfile, "..", "interpret.jl"))
+end
+
+function JI.handle_err(interp::WarmTestInterpreter, frame::JI.Frame, @nospecialize(err))
+    excs = map(current_exceptions()) do exc
+        ExceptionFrame((exc.exception, exc.backtrace))
+    end
+    append!(interp.current_exceptions, scrub_exc_stack(excs))
+    return @invoke JI.handle_err(interp::JI.Interpreter, frame::JI.Frame, err::Any)
+end
+
+function scrub_backtrace(bt::Vector{BacktraceElm})
+    runtest_idx = @something let
+        findfirst(ip::BacktraceElm ->
+            Test.ip_has_file_and_func(ip, @__FILE__, (:execute_plan,)), bt)
+    end return bt
+    internal_idx = @something let
+        findfirst(ip::BacktraceElm ->
+            Test.ip_has_file_and_func(ip, @__FILE__, (:evaluate_call!,)), bt)
+    end let
+        findfirst(ip::BacktraceElm ->
+            Test.ip_has_file_and_func(ip, JULIAINTERPRETER_INTERPRET_FILE, (:step_expr!, :eval_rhs,)), bt)
+    end return bt
+    internal_idx < runtest_idx || return bt
+    return append!(bt[1:internal_idx-1], bt[runtest_idx:end])
+end
+
+function scrub_exc_stack(excs::Vector{ExceptionFrame})
+    return ExceptionFrame[ExceptionFrame((exc, scrub_backtrace(bt))) for (exc, bt) in excs]
+end
 
 function traverse(f, node::JS.SyntaxNode)
     stack = JS.SyntaxNode[node]
@@ -427,20 +506,38 @@ function selection_maps(plan::ExecutionPlan)
     return patterns, filter_lines, run_all_files
 end
 
-function minimal_diagnostics(plan::ExecutionPlan, summary::Union{Nothing,String})
-    return TestDiagnostic[
-        TestDiagnostic(
-            file = abspath(plan.entryfile),
-            line = 0,
-            kind = :summary,
-            message = something(summary, "virtual execution failed"),
-        ),
-    ]
+function diagnostic_source(source)
+    source === nothing && return ("", 0)
+    file = String(getfield(source, :file))
+    line = Int(getfield(source, :line))
+    return file, line
+end
+
+function diagnostics_from_result(@nospecialize result)
+    diagnostics = TestDiagnostic[]
+    if result isa Test.DefaultTestSet
+        for child in result.results
+            append!(diagnostics, diagnostics_from_result(child))
+        end
+    elseif result isa Test.Fail
+        file, line = diagnostic_source(result.source)
+        push!(diagnostics, TestDiagnostic(file = file, line = line, kind = :fail, message = sprint(show, result)))
+    elseif result isa Test.Error
+        file, line = diagnostic_source(result.source)
+        push!(diagnostics, TestDiagnostic(file = file, line = line, kind = :error, message = sprint(show, result)))
+    elseif result isa Test.Threw
+        file, line = diagnostic_source(result.source)
+        push!(diagnostics, TestDiagnostic(file = file, line = line, kind = :error, message = sprint(show, result)))
+    end
+    return diagnostics
 end
 
 function execute_plan(plan::ExecutionPlan; topmodule::Module = Main)
     started = time()
     old_interp = current_warmtest_interpreter[]
+    old_testset_result = last_warmtest_testset_result[]
+    empty!(warmtest_errors_and_fails)
+    last_warmtest_testset_result[] = nothing
     outcome = run_in_fresh_task() do
         capture_test_output() do
             Core.eval(topmodule, :(using Test))
@@ -461,13 +558,16 @@ function execute_plan(plan::ExecutionPlan; topmodule::Module = Main)
             )
             current_warmtest_interpreter[] = interp
             try
-                _virtual_run(interp)
-                return nothing
+                return Test.@testset WarmTestTestSet verbose = true "$(plan.label)" begin
+                    _virtual_run(interp)
+                end
             finally
                 current_warmtest_interpreter[] = old_interp
             end
         end
     end
+    testset_result = last_warmtest_testset_result[]
+    last_warmtest_testset_result[] = old_testset_result
     if outcome[1] == :err
         _, err, bt = outcome
         status, summary, stacktrace = classify_exception(err, bt)
@@ -479,17 +579,21 @@ function execute_plan(plan::ExecutionPlan; topmodule::Module = Main)
             stderr = "",
             exception_summary = summary,
             stacktrace = stacktrace,
-            diagnostics = minimal_diagnostics(plan, summary),
+            diagnostics = diagnostics_from_result(testset_result),
         )
     end
     captured = outcome[2]
+    testset_result = testset_result === nothing ? captured.value : testset_result
+    diagnostics = diagnostics_from_result(testset_result)
     if captured.error === nothing
+        status = isempty(diagnostics) ? :passed : :failed
         return TestResult(
             path = plan.label,
-            status = :passed,
+            status = status,
             elapsed = time() - started,
             stdout = captured.stdout,
             stderr = captured.stderr,
+            diagnostics = diagnostics,
         )
     end
     status, summary, stacktrace = classify_exception(captured.error, captured.backtrace)
@@ -501,6 +605,6 @@ function execute_plan(plan::ExecutionPlan; topmodule::Module = Main)
         stderr = captured.stderr,
         exception_summary = summary,
         stacktrace = stacktrace,
-        diagnostics = minimal_diagnostics(plan, summary),
+        diagnostics = diagnostics,
     )
 end

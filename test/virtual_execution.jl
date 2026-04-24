@@ -60,6 +60,21 @@ try
             @test result.status == :failed
         end
     end
+
+    @testset "virtual execution diagnostics include user files" begin
+        selection = WarmTestRunner.TestSelection(
+            file = joinpath(VIRTUAL_FIXTURE_ROOT, "test", "errors.jl"),
+            patterns = Any["error testset"],
+        )
+        plan = WarmTestRunner.ExecutionPlan(
+            entryfile = VIRTUAL_FIXTURE_ENTRY,
+            selections = [selection],
+        )
+        result = WarmTestRunner.execute_plan(plan; topmodule = Module(:VirtualExecutionDiagnostics))
+        @test result.status == :failed
+        @test any(d -> endswith(d.file, joinpath("test", "errors.jl")), result.diagnostics)
+        @test any(d -> d.kind in (:error, :fail), result.diagnostics)
+    end
 finally
     VIRTUAL_FIXTURE_LOAD_PATH_ADDED && filter!(path -> path != VIRTUAL_FIXTURE_ROOT, LOAD_PATH)
 end
