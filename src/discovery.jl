@@ -137,10 +137,15 @@ end
 
 function is_short_function_definition(@nospecialize(expr))
     Meta.isexpr(expr, :(=), 2) || return false
-    lhs = first(expr.args)
+    return is_short_function_lhs(first(expr.args))
+end
+
+function is_short_function_lhs(@nospecialize(lhs))
     lhs isa Expr || return false
     lhs.head == :call && return true
-    lhs.head == :where && !isempty(lhs.args) && first(lhs.args) isa Expr && first(lhs.args).head == :call && return true
+    if lhs.head in (:where, :(::)) && !isempty(lhs.args)
+        return is_short_function_lhs(first(lhs.args))
+    end
     return false
 end
 

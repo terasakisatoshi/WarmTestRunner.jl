@@ -196,6 +196,7 @@ end
             end
 
             f() = include("short_function_ghost.jl")
+            typed_f()::Any = include("typed_short_function_ghost.jl")
             """,
             files = Dict(
                 "grouped.jl" => """
@@ -214,9 +215,14 @@ end
                             @test false
                         end
                     end
+
+                    typed_latent()::Any = @testset "typed latent hidden" begin
+                        @test false
+                    end
                 end
                 """,
                 "short_function_ghost.jl" => "@test false\n",
+                "typed_short_function_ghost.jl" => "@test false\n",
             ),
         )
         cfg = WarmTestRunner.make_config(pkgroot = root)
@@ -235,7 +241,9 @@ end
         @test result.status == :failed
 
         @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; testsets = ["latent hidden"])
+        @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; testsets = ["typed latent hidden"])
         @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; tests = ["short_function_ghost.jl"])
+        @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; tests = ["typed_short_function_ghost.jl"])
     end
 end
 
