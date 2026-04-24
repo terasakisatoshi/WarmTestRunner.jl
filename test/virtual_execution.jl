@@ -75,6 +75,39 @@ try
         @test any(d -> endswith(d.file, joinpath("test", "errors.jl")), result.diagnostics)
         @test any(d -> d.kind in (:error, :fail), result.diagnostics)
     end
+
+    @testset "virtual execution setup diagnostics include user file" begin
+        mktempdir() do tmp
+            entry = joinpath(tmp, "runtests.jl")
+            write(entry, join([
+                "using Test",
+                "error(\"top setup boom\")",
+                "@test true",
+            ], "\n") * "\n")
+            plan = WarmTestRunner.ExecutionPlan(entryfile = entry, run_all = true)
+            result = WarmTestRunner.execute_plan(plan; topmodule = Module(:VirtualExecutionSetupError))
+            @test result.status == :errored
+            @test any(d -> d.file == entry || endswith(d.file, "runtests.jl"), result.diagnostics)
+            @test any(d -> (d.file == entry || endswith(d.file, "runtests.jl")) && d.line == 2, result.diagnostics)
+            @test !any(d -> endswith(d.file, joinpath("src", "virtual_execution.jl")), result.diagnostics)
+        end
+    end
+
+    @testset "virtual execution parse diagnostics include user file" begin
+        mktempdir() do tmp
+            entry = joinpath(tmp, "runtests.jl")
+            write(entry, join([
+                "using Test",
+                "if",
+                "@test true",
+            ], "\n") * "\n")
+            plan = WarmTestRunner.ExecutionPlan(entryfile = entry, run_all = true)
+            result = WarmTestRunner.execute_plan(plan; topmodule = Module(:VirtualExecutionParseError))
+            @test result.status == :errored
+            @test any(d -> d.file == entry || endswith(d.file, "runtests.jl"), result.diagnostics)
+            @test !any(d -> endswith(d.file, joinpath("src", "virtual_execution.jl")), result.diagnostics)
+        end
+    end
 finally
     VIRTUAL_FIXTURE_LOAD_PATH_ADDED && filter!(path -> path != VIRTUAL_FIXTURE_ROOT, LOAD_PATH)
 end

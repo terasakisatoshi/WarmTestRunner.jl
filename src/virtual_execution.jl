@@ -13,6 +13,7 @@ const ExceptionFrame = @NamedTuple{exception::Any,backtrace::Vector{BacktraceElm
 
 const warmtest_errors_and_fails = IdDict{Any, Vector{Any}}()
 const last_warmtest_testset_result = Ref{Union{Nothing,Test.DefaultTestSet}}(nothing)
+const current_execution_diagnostics = Ref{Union{Nothing,Vector{TestDiagnostic}}}(nothing)
 
 struct WarmTestInterpreter <: JI.Interpreter
     patterns::Dict{String,Vector{Any}}
@@ -111,6 +112,21 @@ end
 
 function scrub_exc_stack(excs::Vector{ExceptionFrame})
     return ExceptionFrame[ExceptionFrame((exc, scrub_backtrace(bt))) for (exc, bt) in excs]
+end
+
+function record_execution_diagnostic!(file::AbstractString, line::Integer, kind::Symbol, @nospecialize(err))
+    diagnostics = current_execution_diagnostics[]
+    diagnostics === nothing && return nothing
+    push!(
+        diagnostics,
+        TestDiagnostic(
+            file = String(file),
+            line = Int(line),
+            kind = kind,
+            message = sprint(showerror, err),
+        ),
+    )
+    return nothing
 end
 
 function traverse(f, node::JS.SyntaxNode)
@@ -396,7 +412,18 @@ function _virtual_run(interp::WarmTestInterpreter)
     toptext = read(filename, String)
     stream = JS.ParseStream(toptext)
     JS.parse!(stream; rule = :all)
-    isempty(stream.diagnostics) || throw(JS.ParseError(stream))
+    if !isempty(stream.diagnostics)
+        err = JS.ParseError(stream)
+        line = 0
+        try
+            sourcefile = JS.SourceFile(stream; filename = filename)
+            line = JS.source_line(sourcefile, first(stream.diagnostics).first_byte)
+        catch
+            line = 0
+        end
+        record_execution_diagnostic!(filename, line, :parse_error, err)
+        throw(err)
+    end
     sntop = JS.build_tree(JS.SyntaxNode, stream; filename)
     _virtual_run(interp, sntop)
 end
@@ -476,16 +503,21 @@ function _virtual_run(interp::WarmTestInterpreter, sntop::JS.SyntaxNode)
             # Note: We use `JI.finish!` here instead of `Core.eval`
             # to ensure proper handling of `include` statements through our
             # custom `evaluate_call!` implementation.
-            lwr = Meta.lower(context, expr)
+            try
+                lwr = Meta.lower(context, expr)
 
-            if !Meta.isexpr(lwr, :thunk)
-                Core.eval(context, lwr)
-                continue
+                if !Meta.isexpr(lwr, :thunk)
+                    Core.eval(context, lwr)
+                    continue
+                end
+                src = only(lwr.args)::CodeInfo
+
+                frame = JI.Frame(context, src)
+                JI.finish!(interp, frame, #=istoplevel=#true)
+            catch err
+                record_execution_diagnostic!(interp.filename, JS.source_line(node), :setup_error, err)
+                rethrow()
             end
-            src = only(lwr.args)::CodeInfo
-
-            frame = JI.Frame(context, src)
-            JI.finish!(interp, frame, #=istoplevel=#true)
         end
     end
 end
@@ -532,64 +564,93 @@ function diagnostics_from_result(@nospecialize result)
     return diagnostics
 end
 
+is_execution_error_diagnostic(diagnostic::TestDiagnostic) = diagnostic.kind in (:setup_error, :parse_error)
+
+function is_internal_virtual_diagnostic(diagnostic::TestDiagnostic)
+    isempty(diagnostic.file) && return false
+    return normpath(diagnostic.file) == normpath(@__FILE__)
+end
+
+function combined_diagnostics(@nospecialize(testset_result), execution_diagnostics::Vector{TestDiagnostic})
+    diagnostics = diagnostics_from_result(testset_result)
+    if !isempty(execution_diagnostics)
+        filter!(diagnostic -> !is_internal_virtual_diagnostic(diagnostic), diagnostics)
+    end
+    append!(diagnostics, execution_diagnostics)
+    return diagnostics
+end
+
+function virtual_status(default_status::Symbol, diagnostics::Vector{TestDiagnostic})
+    any(is_execution_error_diagnostic, diagnostics) && return :errored
+    return default_status
+end
+
 function execute_plan(plan::ExecutionPlan; topmodule::Module = Main)
     started = time()
     old_interp = current_warmtest_interpreter[]
     old_testset_result = last_warmtest_testset_result[]
+    old_execution_diagnostics = current_execution_diagnostics[]
+    execution_diagnostics = TestDiagnostic[]
     empty!(warmtest_errors_and_fails)
     last_warmtest_testset_result[] = nothing
-    outcome = run_in_fresh_task() do
-        capture_test_output() do
-            Core.eval(topmodule, :(using Test))
-            if !isdefined(topmodule, :include)
-                Core.eval(topmodule, :(include(path) = Base.include($topmodule, path)))
-            end
-            patterns, filter_lines, run_all_files = selection_maps(plan)
-            if plan.run_all
-                push!(run_all_files, abspath(plan.entryfile))
-            end
-            interp = WarmTestInterpreter(
-                patterns,
-                filter_lines,
-                run_all_files,
-                abspath(plan.entryfile),
-                topmodule,
-                ExceptionFrame[],
-            )
-            current_warmtest_interpreter[] = interp
-            try
-                return Test.@testset WarmTestTestSet verbose = true "$(plan.label)" begin
-                    _virtual_run(interp)
+    current_execution_diagnostics[] = execution_diagnostics
+    outcome = try
+        run_in_fresh_task() do
+            capture_test_output() do
+                Core.eval(topmodule, :(using Test))
+                if !isdefined(topmodule, :include)
+                    Core.eval(topmodule, :(include(path) = Base.include($topmodule, path)))
                 end
-            finally
-                current_warmtest_interpreter[] = old_interp
+                patterns, filter_lines, run_all_files = selection_maps(plan)
+                if plan.run_all
+                    push!(run_all_files, abspath(plan.entryfile))
+                end
+                interp = WarmTestInterpreter(
+                    patterns,
+                    filter_lines,
+                    run_all_files,
+                    abspath(plan.entryfile),
+                    topmodule,
+                    ExceptionFrame[],
+                )
+                current_warmtest_interpreter[] = interp
+                try
+                    return Test.@testset WarmTestTestSet verbose = true "$(plan.label)" begin
+                        _virtual_run(interp)
+                    end
+                finally
+                    current_warmtest_interpreter[] = old_interp
+                end
             end
         end
+    finally
+        current_execution_diagnostics[] = old_execution_diagnostics
     end
     testset_result = last_warmtest_testset_result[]
     last_warmtest_testset_result[] = old_testset_result
     if outcome[1] == :err
         _, err, bt = outcome
         status, summary, stacktrace = classify_exception(err, bt)
+        diagnostics = combined_diagnostics(testset_result, execution_diagnostics)
         return TestResult(
             path = plan.label,
-            status = status,
+            status = virtual_status(status, diagnostics),
             elapsed = time() - started,
             stdout = "",
             stderr = "",
             exception_summary = summary,
             stacktrace = stacktrace,
-            diagnostics = diagnostics_from_result(testset_result),
+            diagnostics = diagnostics,
         )
     end
     captured = outcome[2]
     testset_result = testset_result === nothing ? captured.value : testset_result
-    diagnostics = diagnostics_from_result(testset_result)
+    diagnostics = combined_diagnostics(testset_result, execution_diagnostics)
     if captured.error === nothing
         status = isempty(diagnostics) ? :passed : :failed
         return TestResult(
             path = plan.label,
-            status = status,
+            status = virtual_status(status, diagnostics),
             elapsed = time() - started,
             stdout = captured.stdout,
             stderr = captured.stderr,
@@ -599,7 +660,7 @@ function execute_plan(plan::ExecutionPlan; topmodule::Module = Main)
     status, summary, stacktrace = classify_exception(captured.error, captured.backtrace)
     return TestResult(
         path = plan.label,
-        status = status,
+        status = virtual_status(status, diagnostics),
         elapsed = time() - started,
         stdout = captured.stdout,
         stderr = captured.stderr,
