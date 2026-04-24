@@ -204,6 +204,26 @@ function selector_pairs(name::Symbol, selector)
     return pairs
 end
 
+function has_any_selector(
+    selected_test_names::Vector{String},
+    selected_testsets::Vector{Any},
+    selected_line_patterns,
+    selected_expression_patterns,
+)
+    return !isempty(selected_test_names) ||
+        !isempty(selected_testsets) ||
+        !isempty(selected_line_patterns) ||
+        !isempty(selected_expression_patterns)
+end
+
+function filter_selections_to_files!(
+    selections::Vector{TestSelection},
+    files::Set{String},
+)
+    filter!(selection -> abspath(selection.file) in files, selections)
+    return selections
+end
+
 function testset_macro_name(@nospecialize(expr))
     Meta.isexpr(expr, :macrocall) || return nothing
     isempty(expr.args) && return nothing
@@ -288,11 +308,21 @@ function build_file_entry_plans(
     testdir = joinpath(cfg.pkgroot, "test")
     filemap = selectable_file_map(files, testdir)
 
+    explicit_selector = has_any_selector(
+        selected_test_names,
+        selected_testsets,
+        selected_line_patterns,
+        selected_expression_patterns,
+    )
     selected_tests = selected_test_names
+    failed_files = Set{String}()
     if rerun_failed
-        failed_files = isempty(last_failed) ? String[] : filter_selected_files_from_names(filemap, cfg, String.(last_failed), testdir)
+        union!(
+            failed_files,
+            isempty(last_failed) ? String[] : filter_selected_files_from_names(filemap, cfg, String.(last_failed), testdir),
+        )
         if isempty(selected_test_names)
-            selected_tests = collect(failed_files)
+            selected_tests = explicit_selector ? String[] : collect(failed_files)
         else
             explicit_files = selected_files_from_names(filemap, cfg, selected_test_names, testdir)
             selected_tests = [file for file in explicit_files if file in failed_files]
@@ -306,11 +336,12 @@ function build_file_entry_plans(
         selected_tests = files
     end
 
-    selections = TestSelection[]
+    file_selections = TestSelection[]
     for name in selected_tests
         file = selected_file_from_map(filemap, cfg, name, testdir)
-        push!(selections, TestSelection(file = file, run_all = true))
+        push_selection!(file_selections, TestSelection(file = file, run_all = true))
     end
+    selections = TestSelection[]
     for pattern in selected_testsets
         for file in files_for_testset_pattern(files, pattern)
             push!(selections, TestSelection(file = file, patterns = Any[pattern]))
@@ -325,12 +356,16 @@ function build_file_entry_plans(
         file = selected_file_from_map(filemap, cfg, first(pair), testdir)
         push!(selections, TestSelection(file = file, patterns = Any[last(pair)]))
     end
-    if (changed_only || rerun_failed) && isempty(selected_tests)
+    if rerun_failed
+        filter_selections_to_files!(file_selections, failed_files)
+        filter_selections_to_files!(selections, failed_files)
+        isempty(file_selections) && isempty(selections) && return ExecutionPlan[]
+    elseif changed_only && isempty(selected_tests)
         return ExecutionPlan[]
     end
 
     plans = ExecutionPlan[]
-    for group in plan_selection_groups(selections)
+    for group in plan_selection_groups(vcat(file_selections, selections))
         for selection in group
             push!(
                 plans,
@@ -383,11 +418,18 @@ function build_execution_plans(
     end
 
     reachability = reachable_file_map(entry)
+    explicit_selector = has_any_selector(
+        selected_test_names,
+        selected_testsets,
+        selected_line_patterns,
+        selected_expression_patterns,
+    )
     selected_tests = selected_test_names
+    failed_files = Set{String}()
     if rerun_failed
-        failed_files = Set(filter_selected_files_from_names(reachability, cfg, String.(last_failed), entry))
+        union!(failed_files, filter_selected_files_from_names(reachability, cfg, String.(last_failed), entry))
         if isempty(selected_test_names)
-            selected_tests = collect(failed_files)
+            selected_tests = explicit_selector ? String[] : collect(failed_files)
         else
             explicit_files = selected_files_from_names(reachability, cfg, selected_test_names, entry)
             selected_tests = [file for file in explicit_files if file in failed_files]
@@ -427,7 +469,11 @@ function build_execution_plans(
         file = selected_file_from_map(reachability, cfg, first(pair), entry)
         push!(selections, TestSelection(file = file, patterns = Any[last(pair)]))
     end
-    if (changed_only || rerun_failed) && isempty(selected_tests)
+    if rerun_failed
+        filter_selections_to_files!(file_selections, failed_files)
+        filter_selections_to_files!(selections, failed_files)
+        isempty(file_selections) && isempty(selections) && return ExecutionPlan[]
+    elseif changed_only && isempty(selected_tests)
         return ExecutionPlan[]
     end
     plans = [

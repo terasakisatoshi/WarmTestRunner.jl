@@ -532,6 +532,38 @@ end
     @test isempty(WarmTestRunner.build_execution_plans(cfg; rerun_failed = true, last_failed = ["missing.jl"]))
 end
 
+@testset "rerun_failed intersects explicit non-file selectors with failed files" begin
+    cfg = WarmTestRunner.make_config(pkgroot = PLANNING_FIXTURE_ROOT)
+
+    @test isempty(
+        WarmTestRunner.build_execution_plans(
+            cfg;
+            rerun_failed = true,
+            last_failed = ["test/errors.jl"],
+            testsets = ["selected testset"],
+        ),
+    )
+
+    plans = WarmTestRunner.build_execution_plans(
+        cfg;
+        rerun_failed = true,
+        last_failed = ["test/selection.jl"],
+        testsets = ["selected testset"],
+    )
+    @test length(plans) == 1
+    @test only(plans).label == "test/runtests.jl"
+    @test endswith(only(only(plans).selections).file, joinpath("test", "selection.jl"))
+
+    @test isempty(
+        WarmTestRunner.build_execution_plans(
+            cfg;
+            rerun_failed = true,
+            last_failed = ["test/errors.jl"],
+            line_patterns = ["selection.jl" => 4],
+        ),
+    )
+end
+
 @testset "planning without runtests validates and applies selectors" begin
     mktempdir() do root
         make_no_entry_planning_fixture(
@@ -584,5 +616,23 @@ end
         plans = WarmTestRunner.build_execution_plans(cfg; expression_patterns = ["alpha.jl" => "alpha selected"])
         @test length(plans) == 1
         @test only(only(plans).selections).patterns == Any["alpha selected"]
+
+        @test isempty(
+            WarmTestRunner.build_execution_plans(
+                cfg;
+                rerun_failed = true,
+                last_failed = ["test/beta.jl"],
+                testsets = ["alpha selected"],
+            ),
+        )
+
+        plans = WarmTestRunner.build_execution_plans(
+            cfg;
+            rerun_failed = true,
+            last_failed = ["test/alpha.jl"],
+            testsets = ["alpha selected"],
+        )
+        @test length(plans) == 1
+        @test only(plans).label == "test/alpha.jl"
     end
 end
