@@ -31,6 +31,7 @@ julia -e 'using Pkg; Pkg.activate(); Pkg.develop(path = ".")'
 ```bash
 $ cd path/to/target/package
 $ julia --project -e 'using WarmTestRunner; summary = runtests()'
+```
 
 `runtests()` は `test/runtests.jl` があればそれをテストスイートの入口として実行します。`tests = [...]` で一部のファイルを指定した場合も、到達可能な included file であれば `test/runtests.jl` を経由して、そのファイルのテストだけを選択実行します。選択されていない included file でも、依存関係や top-level setup として必要な非テスト式は評価されることがありますが、選択外ファイルの `@test` / `@testset` は実行されません。
 
@@ -46,3 +47,10 @@ summary.results
 ```
 
 各結果は `summary.results` に入り、`path`, `status`, `stdout`, `stderr`, `exception_summary`, `stacktrace`, `elapsed`, `diagnostics` などを確認できます。全体実行では通常 `test/runtests.jl` が結果単位になり、`tests = [...]` によるファイル選択では選択ファイルが結果単位になります。
+
+`runtests` を初回に実行すると裏でデーモンが起動します．次回 `runtests` を実行するとコンパイル結果を利用して高速にテストを回すことができます．デーモンを止めるには下記を実行します．
+
+```bash
+$ cd path/to/target/package
+$ julia --project -e 'using WarmTestRunner; stop()'
+```
