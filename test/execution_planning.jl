@@ -208,6 +208,12 @@ end
                 using Test
                 @testset "wrapped selected" begin
                     @test false
+
+                    function latent()
+                        @testset "latent hidden" begin
+                            @test false
+                        end
+                    end
                 end
                 """,
                 "short_function_ghost.jl" => "@test false\n",
@@ -228,6 +234,7 @@ end
         result = WarmTestRunner.execute_plan(only(plans); topmodule = Module(:ExecutionPlanningWrappedNameInclude))
         @test result.status == :failed
 
+        @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; testsets = ["latent hidden"])
         @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; tests = ["short_function_ghost.jl"])
     end
 end

@@ -190,6 +190,7 @@ end
 function expr_contains_named_testset(pattern, @nospecialize(expr))
     execution_matches_named_testset(pattern, expr) && return true
     expr isa Expr || return false
+    is_nonexecuted_static_include_container(expr) && return false
     return any(arg -> expr_contains_named_testset(pattern, arg), expr.args)
 end
 
