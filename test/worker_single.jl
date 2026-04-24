@@ -3,6 +3,7 @@ using Malt
 using WarmTestRunner
 
 const FIXTURE_ROOT = joinpath(@__DIR__, "packages", "FixturePkg")
+const VIRTUAL_FIXTURE_ROOT = joinpath(@__DIR__, "packages", "VirtualExecutionFixture")
 const PASS_JOB = WarmTestRunner.TestJob(path = joinpath(FIXTURE_ROOT, "test", "pass.jl"), name = "pass.jl")
 const FAIL_JOB = WarmTestRunner.TestJob(path = joinpath(FIXTURE_ROOT, "test", "fail.jl"), name = "fail.jl")
 
@@ -37,6 +38,34 @@ const FAIL_JOB = WarmTestRunner.TestJob(path = joinpath(FIXTURE_ROOT, "test", "f
         @test failed.exception_summary !== nothing
         @test worker.state == :idle
         @test worker.runs_completed == 2
+    finally
+        WarmTestRunner.stop_worker!(worker)
+        @test worker.state == :stopped
+    end
+end
+
+@testset "single malt worker executes virtual plans through runtests" begin
+    cfg = WarmTestRunner.make_config(pkgroot = VIRTUAL_FIXTURE_ROOT, jobs = 1, use_revise = false)
+    worker = WarmTestRunner.start_worker(cfg; id = 9)
+
+    try
+        WarmTestRunner.bootstrap_worker!(worker, cfg)
+        plan = only(WarmTestRunner.build_execution_plans(cfg; tests = ["selection.jl"]))
+        result = WarmTestRunner.run_test_in_worker!(
+            worker,
+            WarmTestRunner.TestJob(
+                path = plan.entryfile,
+                name = "test/runtests.jl",
+                plan = plan,
+            ),
+            cfg,
+        )
+        @test result.status == :passed
+        @test result.path == "test/runtests.jl"
+        @test occursin("selected testset", result.stdout)
+        @test occursin("other testset", result.stdout)
+        @test !occursin("failure testset", result.stdout)
+        @test worker.runs_completed == 1
     finally
         WarmTestRunner.stop_worker!(worker)
         @test worker.state == :stopped

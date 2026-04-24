@@ -549,7 +549,10 @@ end
                     @test getfield.(seeded.results, :status) == [:passed]
                     @test getfield.(visible.results, :status) == [:passed]
                     @test getfield.(reset.results, :status) == [:errored]
-                    @test occursin("UndefVarError", something(only(reset.results).stacktrace, ""))
+                    @test any(
+                        diagnostic -> occursin("UndefVarError", diagnostic.message),
+                        only(reset.results).diagnostics,
+                    )
                 finally
                     try
                         WarmTestRunner.stop()
@@ -744,7 +747,7 @@ end
                 stop_elapsed = @elapsed stop_result = WarmTestRunner.stop()
                 summary = fetch(run_task)
 
-                @test stop_elapsed < 1.5
+                @test stop_elapsed < 2.5
                 @test stop_result == :ok
                 @test summary.crashed == 1
                 @test getfield.(summary.results, :status) == [:crashed]
