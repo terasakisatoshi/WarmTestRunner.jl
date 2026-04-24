@@ -76,6 +76,36 @@ function push_selection!(selections::Vector{TestSelection}, selection::TestSelec
     return selections
 end
 
+function merged_selections(selections::Vector{TestSelection})
+    merged = TestSelection[]
+    for selection in selections
+        push_selection!(merged, selection)
+    end
+    return merged
+end
+
+function plan_selection_groups(selections::Vector{TestSelection})
+    filtered_files = Set(abspath(selection.file) for selection in selections if selection.filter_lines !== nothing)
+    unfiltered_pattern_files = Set(
+        abspath(selection.file) for selection in selections
+        if selection.filter_lines === nothing && !selection.run_all && !isempty(selection.patterns)
+    )
+    if isempty(intersect(filtered_files, unfiltered_pattern_files))
+        return [merged_selections(selections)]
+    end
+
+    unfiltered = TestSelection[]
+    filtered = TestSelection[]
+    for selection in selections
+        push!(selection.filter_lines === nothing ? unfiltered : filtered, selection)
+    end
+
+    groups = Vector{TestSelection}[]
+    isempty(unfiltered) || push!(groups, merged_selections(unfiltered))
+    isempty(filtered) || push!(groups, merged_selections(filtered))
+    return groups
+end
+
 function push_line_pattern!(patterns::Vector{Any}, filter_lines::Set{Int}, line::Integer)
     line >= 1 || throw(ArgumentError("line selections must be positive source line numbers; got $(repr(line))"))
     normalized = Int(line)
@@ -164,20 +194,23 @@ function build_execution_plans(
     selections = TestSelection[]
     for name in selected_tests
         file = selected_file_from_map(reachability, cfg, name, entry)
-        push_selection!(selections, TestSelection(file = file, run_all = true))
+        push!(selections, TestSelection(file = file, run_all = true))
     end
     for pattern in testsets
-        push_selection!(selections, TestSelection(file = abspath(entry), patterns = Any[pattern]))
+        push!(selections, TestSelection(file = abspath(entry), patterns = Any[pattern]))
     end
     for pair in line_patterns
         file = selected_file_from_map(reachability, cfg, first(pair), entry)
         lines = last(pair)
         selection_patterns = line_patterns_for_selection(lines)
-        push_selection!(selections, TestSelection(file = file, patterns = selection_patterns.patterns, filter_lines = selection_patterns.filter_lines))
+        push!(selections, TestSelection(file = file, patterns = selection_patterns.patterns, filter_lines = selection_patterns.filter_lines))
     end
     for pair in expression_patterns
         file = selected_file_from_map(reachability, cfg, first(pair), entry)
-        push_selection!(selections, TestSelection(file = file, patterns = Any[last(pair)]))
+        push!(selections, TestSelection(file = file, patterns = Any[last(pair)]))
     end
-    return [ExecutionPlan(entryfile = entry, selections = selections, label = "test/runtests.jl")]
+    return [
+        ExecutionPlan(entryfile = entry, selections = group, label = "test/runtests.jl")
+        for group in plan_selection_groups(selections)
+    ]
 end

@@ -99,18 +99,14 @@ function static_include_paths(text::AbstractString; filename::AbstractString = "
     isempty(stream.diagnostics) || return String[]
     top = JS.build_tree(JS.SyntaxNode, stream; filename)
     paths = String[]
-    stack = JS.SyntaxNode[top]
-    while !isempty(stack)
-        node = pop!(stack)
+    for index in 1:JS.numchildren(top)
+        node = top[index]
         try
             expr = Expr(node)
             if is_static_include_call(expr)
                 push!(paths, last(expr.args))
             end
         catch
-        end
-        for index in JS.numchildren(node):-1:1
-            push!(stack, node[index])
         end
     end
     return paths

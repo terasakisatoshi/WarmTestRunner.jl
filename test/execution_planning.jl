@@ -157,6 +157,27 @@ end
     end
 end
 
+@testset "static include discovery ignores uncalled function bodies" begin
+    mktempdir() do root
+        make_planning_fixture(
+            root;
+            runtests = """
+            using Test
+
+            function latent_tests()
+                include("ghost.jl")
+            end
+
+            @test true
+            """,
+            files = Dict("ghost.jl" => "@test false\n"),
+        )
+        cfg = WarmTestRunner.make_config(pkgroot = root)
+
+        @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; tests = ["ghost.jl"])
+    end
+end
+
 @testset "multiple entry selections keep all patterns" begin
     cfg = WarmTestRunner.make_config(pkgroot = PLANNING_FIXTURE_ROOT)
     plans = WarmTestRunner.build_execution_plans(cfg; testsets = ["selected testset", "other testset"])
@@ -203,6 +224,44 @@ end
         @test occursin("first selected", result.stdout)
         @test occursin("second selected", result.stdout)
         @test !occursin("unselected", result.stdout)
+    end
+end
+
+@testset "line filters do not hide expression selections in same file" begin
+    mktempdir() do root
+        make_planning_fixture(
+            root;
+            runtests = """
+            using Test
+            include("selection.jl")
+            """,
+            files = Dict(
+                "selection.jl" => """
+                using Test
+
+                @testset "line selected" begin
+                    @test true
+                end
+
+                @testset "expression selected" begin
+                    @test false
+                end
+                """,
+            ),
+        )
+        cfg = WarmTestRunner.make_config(pkgroot = root)
+        plans = WarmTestRunner.build_execution_plans(
+            cfg;
+            line_patterns = ["selection.jl" => 4],
+            expression_patterns = ["selection.jl" => "expression selected"],
+        )
+
+        results = [
+            WarmTestRunner.execute_plan(plan; topmodule = Module(Symbol(:ExecutionPlanningMixedSelections, index)))
+            for (index, plan) in pairs(plans)
+        ]
+
+        @test any(result -> result.status == :failed, results)
     end
 end
 
