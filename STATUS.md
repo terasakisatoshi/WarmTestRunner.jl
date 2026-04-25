@@ -38,7 +38,7 @@ Practical summary:
 Implemented:
 
 - `serve(; pkgroot, jobs, threads_per_worker, use_testenv, preload_package, startup_file, ...)`
-- `runtests(; tests = nothing, testsets = nothing, line_patterns = nothing, expression_patterns = nothing, quickfail = false, changed_only = false, rerun_failed = false, fresh = false, retry_crashed = true, output_format = :text, kwargs...)`
+- `runtests(; tests = nothing, testsets = nothing, line_patterns = nothing, expression_patterns = nothing, quickfail = false, changed_only = false, rerun_failed = false, fresh = false, retry_crashed = true, split_testsets = false, output_format = :text, kwargs...)`
 - `watch(; paths = ["src", "test"], debounce_seconds = 0.5, changed_only = true, kwargs...)`
 - `status(; pkgroot = pwd())`
 - `stop(; pkgroot = pwd())`
@@ -54,6 +54,10 @@ Current behavior:
   still goes through the suite entry.
 - `runtests(...; testsets = [...])`, `runtests(...; line_patterns = [...])`, and
   `runtests(...; expression_patterns = [...])` are implemented.
+- `runtests(...; split_testsets = true)` splits statically reachable literal-name
+  top-level `@testset`s into separate result units and scheduler jobs. These jobs are
+  dispatched across the existing worker pool, so a prior `serve(jobs = 4)` can run
+  split testsets concurrently.
 - `runtests(...; output_format = :json)` returns a JSON string preserving summary counts and
   structured diagnostics.
 - `runtests(...; changed_only = true)` selects changed tests with the implemented coarse

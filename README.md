@@ -35,6 +35,12 @@ $ julia --project -e 'using WarmTestRunner; summary = runtests()'
 
 `runtests()` は `test/runtests.jl` があればそれをテストスイートの入口として実行します。`tests = [file.jl]` で `./test/file.jl` のファイルを指定した場合も、到達可能な included file であれば `test/runtests.jl` を経由して、そのファイルのテストだけを選択実行します。選択されていない included file でも、依存関係や top-level setup として必要な非テスト式は評価されることがありますが、選択外ファイルの `@test` / `@testset` は実行されません。
 
+`split_testsets = true` を渡すと、静的に到達可能な test file にあるリテラル名の top-level `@testset` を個別の実行単位に分割します。先に `serve(jobs = 4)` などで worker pool を起動しておくと、分割された testset 単位の job が既存 worker に並列 dispatch されます。
+
+```bash
+$ julia --project -e 'using WarmTestRunner; serve(jobs = 4); runtests(split_testsets = true)'
+```
+
 返り値は `RunSummary` です。
 
 ```julia
@@ -46,7 +52,7 @@ summary.skipped
 summary.results
 ```
 
-各結果は `summary.results` に入り、`path`, `status`, `stdout`, `stderr`, `exception_summary`, `stacktrace`, `elapsed`, `diagnostics` などを確認できます。全体実行では通常 `test/runtests.jl` が結果単位になり、`tests = [...]` によるファイル選択では選択ファイルが結果単位になります。
+各結果は `summary.results` に入り、`path`, `status`, `stdout`, `stderr`, `exception_summary`, `stacktrace`, `elapsed`, `diagnostics` などを確認できます。全体実行では通常 `test/runtests.jl` が結果単位になり、`tests = [...]` によるファイル選択では選択ファイルが結果単位になります。`split_testsets = true` では `test/file.jl:line: testset name` のような top-level testset ラベルが結果単位になります。
 
 `runtests` を初回に実行すると裏でデーモンが起動します．次回 `runtests` を実行するとコンパイル結果を利用して高速にテストを回すことができます．デーモンを止めるには下記を実行します．
 
