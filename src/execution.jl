@@ -248,6 +248,97 @@ function execution_matches_named_testset(pattern, @nospecialize(expr))
     return false
 end
 
+function literal_testset_name(@nospecialize(expr))
+    testset_macro_name(expr) === nothing && return nothing
+    for arg in expr.args
+        arg isa AbstractString || continue
+        return String(arg)
+    end
+    return nothing
+end
+
+function collect_top_level_testsets!(units::Vector{NamedTuple{(:file, :name, :line), Tuple{String, String, Int}}}, file::AbstractString, node::JS.SyntaxNode)
+    expr = try
+        Expr(node)
+    catch
+        return units
+    end
+
+    name = literal_testset_name(expr)
+    if name !== nothing
+        push!(units, (file = String(file), name = name, line = Int(JS.source_line(node))))
+        return units
+    end
+
+    expr isa Expr || return units
+    is_nonexecuted_static_include_container(expr) && return units
+    expr.head in (:block, :module) || return units
+    for index in 1:JS.numchildren(node)
+        collect_top_level_testsets!(units, file, node[index])
+    end
+    return units
+end
+
+function top_level_testsets_in_file(file::AbstractString)
+    isfile(file) || return NamedTuple{(:file, :name, :line), Tuple{String, String, Int}}[]
+    stream = JS.ParseStream(read(file, String))
+    JS.parse!(stream; rule = :all)
+    isempty(stream.diagnostics) || return NamedTuple{(:file, :name, :line), Tuple{String, String, Int}}[]
+    top = JS.build_tree(JS.SyntaxNode, stream; filename = file)
+    units = NamedTuple{(:file, :name, :line), Tuple{String, String, Int}}[]
+    for index in 1:JS.numchildren(top)
+        collect_top_level_testsets!(units, file, top[index])
+    end
+    return units
+end
+
+function testset_unit_label(cfg::RunnerConfig, file::AbstractString, name::AbstractString, line::Integer)
+    return "$(result_path(cfg, file)):$(line): $(name)"
+end
+
+function split_testset_plans(
+    cfg::RunnerConfig,
+    entryfile::AbstractString,
+    files::AbstractVector{<:AbstractString};
+    fallback_empty::Bool = false,
+)
+    plans = ExecutionPlan[]
+    for file in files
+        plan_entryfile = isempty(entryfile) ? file : entryfile
+        units = top_level_testsets_in_file(file)
+        if isempty(units)
+            if fallback_empty
+                push!(
+                    plans,
+                    ExecutionPlan(
+                        entryfile = plan_entryfile,
+                        selections = [TestSelection(file = file, run_all = true)],
+                        label = result_path(cfg, file),
+                    ),
+                )
+            end
+            continue
+        end
+        for unit in units
+            push!(
+                plans,
+                ExecutionPlan(
+                    entryfile = plan_entryfile,
+                    selections = [
+                        TestSelection(
+                            file = unit.file,
+                            patterns = Any[unit.name],
+                            filter_lines = Set([unit.line]),
+                        ),
+                    ],
+                    label = testset_unit_label(cfg, unit.file, unit.name, unit.line),
+                ),
+            )
+        end
+    end
+    return plans
+end
+
 function expr_contains_named_testset(pattern, @nospecialize(expr))
     execution_matches_named_testset(pattern, expr) && return true
     expr isa Expr || return false
@@ -294,6 +385,7 @@ function build_file_entry_plans(
     changed_only::Bool,
     rerun_failed::Bool,
     last_failed::AbstractVector{<:AbstractString},
+    split_testsets::Bool = false,
 )
     jobs = discover_tests(cfg.pkgroot)
     files = String[abspath(job.path) for job in jobs]
@@ -365,7 +457,31 @@ function build_file_entry_plans(
     end
 
     plans = ExecutionPlan[]
-    for group in plan_selection_groups(vcat(file_selections, selections))
+    if split_testsets && !isempty(file_selections)
+        append!(
+            plans,
+            split_testset_plans(
+                cfg,
+                "",
+                [selection.file for selection in file_selections],
+                fallback_empty = !isempty(selected_test_names),
+            ),
+        )
+    else
+        for group in plan_selection_groups(file_selections)
+            for selection in group
+                push!(
+                    plans,
+                    ExecutionPlan(
+                        entryfile = selection.file,
+                        selections = [selection],
+                        label = result_path(cfg, selection.file),
+                    ),
+                )
+            end
+        end
+    end
+    for group in plan_selection_groups(selections)
         for selection in group
             push!(
                 plans,
@@ -389,6 +505,7 @@ function build_execution_plans(
     changed_only::Bool = false,
     rerun_failed::Bool = false,
     last_failed::AbstractVector{<:AbstractString} = String[],
+    split_testsets::Bool = false,
 )
     assert_nonempty_selector(:tests, tests)
     assert_nonempty_selector(:testsets, testsets)
@@ -414,6 +531,7 @@ function build_execution_plans(
             changed_only,
             rerun_failed,
             last_failed,
+            split_testsets,
         )
     end
 
@@ -448,6 +566,7 @@ function build_execution_plans(
 
     if isempty(selected_tests) && isempty(selected_testsets) && isempty(selected_line_patterns) && isempty(selected_expression_patterns)
         (changed_only || rerun_failed) && return ExecutionPlan[]
+        split_testsets && return split_testset_plans(cfg, entry, all_reachable_files(reachability))
         return [ExecutionPlan(entryfile = entry, run_all = true, label = "test/runtests.jl")]
     end
 
@@ -480,14 +599,23 @@ function build_execution_plans(
     elseif changed_only && isempty(selected_tests)
         return ExecutionPlan[]
     end
-    plans = [
-        ExecutionPlan(
-            entryfile = entry,
-            selections = [selection],
-            label = result_path(cfg, selection.file),
+    plans = if split_testsets && !isempty(file_selections)
+        split_testset_plans(
+            cfg,
+            entry,
+            [selection.file for selection in file_selections],
+            fallback_empty = !isempty(selected_test_names),
         )
-        for selection in file_selections
-    ]
+    else
+        [
+            ExecutionPlan(
+                entryfile = entry,
+                selections = [selection],
+                label = result_path(cfg, selection.file),
+            )
+            for selection in file_selections
+        ]
+    end
     if !isempty(selections)
         append!(
             plans,

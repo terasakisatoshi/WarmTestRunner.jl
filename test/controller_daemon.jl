@@ -150,6 +150,56 @@ function init_shared_context_fixture(tmp::AbstractString)
     return pkgroot
 end
 
+function init_split_testset_parallel_fixture(tmp::AbstractString)
+    pkgroot = joinpath(tmp, "SplitTestsetParallelFixture")
+    mkpath(joinpath(pkgroot, "src"))
+    mkpath(joinpath(pkgroot, "test"))
+
+    write(
+        joinpath(pkgroot, "Project.toml"),
+        """
+        name = "SplitTestsetParallelFixture"
+        uuid = "99999999-aaaa-bbbb-cccc-dddddddddddd"
+        version = "0.1.0"
+        """,
+    )
+    write(joinpath(pkgroot, "src", "SplitTestsetParallelFixture.jl"), "module SplitTestsetParallelFixture\nend\n")
+    write(
+        joinpath(pkgroot, "test", "runtests.jl"),
+        """
+        using Test
+        include("split.jl")
+        """,
+    )
+    write(
+        joinpath(pkgroot, "test", "split.jl"),
+        """
+        using Test
+
+        @testset "parallel one" begin
+            sleep(0.5)
+            @test true
+        end
+
+        @testset "parallel two" begin
+            sleep(0.5)
+            @test true
+        end
+
+        @testset "parallel three" begin
+            sleep(0.5)
+            @test true
+        end
+
+        @testset "parallel four" begin
+            sleep(0.5)
+            @test true
+        end
+        """,
+    )
+    return pkgroot
+end
+
 @testset "inline scheduler runs pass and fail files" begin
     cfg = WarmTestRunner.make_config(pkgroot = FIXTURE_ROOT, jobs = 2)
     jobs = [PASS_JOB, FAIL_JOB]
@@ -782,6 +832,56 @@ end
             try
                 WarmTestRunner.stop(pkgroot = VIRTUAL_FIXTURE_ROOT)
                 WarmTestRunner.wait_for_record_gone(VIRTUAL_FIXTURE_ROOT)
+            catch
+            end
+        end
+    end
+end
+
+@testset "public split_testsets uses existing multi-worker daemon" begin
+    mktempdir() do tmp
+        pkgroot = init_split_testset_parallel_fixture(tmp)
+        warm_home = joinpath(tmp, "warm-home")
+        withenv("WARMTESTRUNNER_HOME" => warm_home) do
+            handle = try
+                WarmTestRunner.serve(
+                    pkgroot = pkgroot,
+                    jobs = 4,
+                    use_testenv = false,
+                    use_revise = false,
+                    preload_package = false,
+                )
+            catch err
+                err
+            end
+
+            @test handle isa WarmTestRunner.ServerHandle
+            if handle isa WarmTestRunner.ServerHandle
+                @test handle.jobs == 4
+            end
+
+            summary = try
+                WarmTestRunner.runtests(
+                    pkgroot = pkgroot,
+                    jobs = 4,
+                    split_testsets = true,
+                )
+            catch err
+                err
+            end
+
+            @test summary isa WarmTestRunner.RunSummary
+            if summary isa WarmTestRunner.RunSummary
+                @test length(summary.results) == 4
+                @test summary.passed == 4
+                @test all(result -> startswith(result.path, "test/split.jl:"), summary.results)
+                @test length(Set(result.worker_id for result in summary.results)) > 1
+                @test WarmTestRunner.status(pkgroot = pkgroot).jobs == 4
+            end
+
+            try
+                WarmTestRunner.stop(pkgroot = pkgroot)
+                WarmTestRunner.wait_for_record_gone(pkgroot)
             catch
             end
         end

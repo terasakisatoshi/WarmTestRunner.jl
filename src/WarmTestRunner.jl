@@ -67,6 +67,10 @@ function ensure_execution_plans_controller!(pkgroot::AbstractString)
     return ensure_protocol_controller!(pkgroot, EXECUTION_PLANS_PROTOCOL_VERSION)
 end
 
+function ensure_split_testsets_controller!(pkgroot::AbstractString)
+    return ensure_protocol_controller!(pkgroot, SPLIT_TESTSETS_PROTOCOL_VERSION)
+end
+
 function validate_output_format(output_format::Symbol)
     output_format in (:text, :json) && return output_format
     throw(ArgumentError("output_format must be :text or :json"))
@@ -89,6 +93,7 @@ function runtests(;
     rerun_failed::Bool = false,
     fresh::Bool = false,
     retry_crashed::Bool = true,
+    split_testsets::Bool = false,
     output_format::Symbol = :text,
     kwargs...,
 )
@@ -103,6 +108,7 @@ function runtests(;
     rerun_failed && ensure_rerun_failed_controller!(cfg.pkgroot)
     fresh && ensure_fresh_controller!(cfg.pkgroot)
     !retry_crashed && ensure_retry_crashed_controller!(cfg.pkgroot)
+    split_testsets && ensure_split_testsets_controller!(cfg.pkgroot)
     serve(; kwargs...)
     summary = client_request(
         cfg.pkgroot,
@@ -117,6 +123,7 @@ function runtests(;
             rerun_failed = rerun_failed,
             fresh = fresh,
             retry_crashed = retry_crashed,
+            split_testsets = split_testsets,
         ),
     )
     output_format == :json && return summary_to_json(summary)

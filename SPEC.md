@@ -181,6 +181,7 @@ runtests(;
     changed_only::Bool = false,
     fresh::Bool = false,
     retry_crashed::Bool = true,
+    split_testsets::Bool = false,
     seed::Union{Int, Nothing} = nothing,
     output_format::Symbol = :text,
 )
@@ -194,6 +195,8 @@ Behavior:
   entry exists
 - if `testsets`, `line_patterns`, or `expression_patterns` are supplied, build focused
   virtual execution plans
+- if `split_testsets == true`, split statically reachable literal-name top-level
+  `@testset`s into separate execution plans and result units
 - if `changed_only == true`, select a subset based on local changes
 - if `fresh == true`, recreate all workers before scheduling jobs
 - if `rerun_failed == true`, reuse the last recorded failing file set for the same server
@@ -335,6 +338,12 @@ Whole-suite runs usually produce one plan for `test/runtests.jl`. File-selected 
 through that entry report selected files as result units. Testset-level diagnostics can
 still appear inside stdout, exception summaries, stack traces, and structured
 diagnostics.
+
+When `split_testsets=true`, each statically reachable top-level `@testset "name"` is
+planned as its own `ExecutionPlan` labeled as `test/file.jl:line: name`. The controller
+schedules those plans with the same worker-pool scheduler used for file-level jobs, so
+an existing daemon started with `serve(jobs=4)` can dispatch multiple top-level testsets
+concurrently.
 
 ### 6.8 Virtual Execution Model
 

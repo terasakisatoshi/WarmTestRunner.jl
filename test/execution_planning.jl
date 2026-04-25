@@ -368,6 +368,98 @@ end
     @test_throws ArgumentError WarmTestRunner.build_execution_plans(cfg; testsets = ["not a testset"])
 end
 
+@testset "split_testsets plans top-level testsets as separate units" begin
+    mktempdir() do root
+        make_planning_fixture(
+            root;
+            runtests = """
+            using Test
+            include("alpha.jl")
+            include("nested/beta.jl")
+            """,
+            files = Dict(
+                "alpha.jl" => """
+                using Test
+
+                const ALPHA_SETUP = 41
+
+                @testset "alpha one" begin
+                    @test ALPHA_SETUP + 1 == 42
+                end
+
+                @testset "alpha two" begin
+                    @test true
+                end
+                """,
+                "nested/beta.jl" => """
+                using Test
+
+                @testset "beta one" begin
+                    @test true
+                    @testset "beta nested" begin
+                        @test true
+                    end
+                end
+                """,
+            ),
+        )
+
+        cfg = WarmTestRunner.make_config(pkgroot = root)
+        plans = WarmTestRunner.build_execution_plans(cfg; split_testsets = true)
+
+        @test length(plans) == 3
+        @test all(plan -> endswith(plan.entryfile, joinpath("test", "runtests.jl")), plans)
+        @test Set(only(plan.selections).patterns for plan in plans) == Set(Any[Any["alpha one"], Any["alpha two"], Any["beta one"]])
+        @test all(plan -> only(plan.selections).filter_lines !== nothing, plans)
+        @test all(plan -> !plan.run_all, plans)
+        @test all(plan -> startswith(plan.label, "test/"), plans)
+        @test any(plan -> occursin("alpha.jl", plan.label) && occursin("alpha one", plan.label), plans)
+
+        results = [
+            WarmTestRunner.execute_plan(plan; topmodule = Module(Symbol(:ExecutionPlanningSplitTestsets, index)))
+            for (index, plan) in pairs(plans)
+        ]
+        @test all(result -> result.status == :passed, results)
+    end
+end
+
+@testset "split_testsets respects explicit file selections" begin
+    mktempdir() do root
+        make_planning_fixture(
+            root;
+            runtests = """
+            using Test
+            include("alpha.jl")
+            include("beta.jl")
+            """,
+            files = Dict(
+                "alpha.jl" => """
+                using Test
+                @testset "alpha one" begin
+                    @test true
+                end
+                @testset "alpha two" begin
+                    @test true
+                end
+                """,
+                "beta.jl" => """
+                using Test
+                @testset "beta one" begin
+                    @test true
+                end
+                """,
+            ),
+        )
+
+        cfg = WarmTestRunner.make_config(pkgroot = root)
+        plans = WarmTestRunner.build_execution_plans(cfg; tests = ["alpha.jl"], split_testsets = true)
+
+        @test length(plans) == 2
+        @test Set(only(plan.selections).patterns for plan in plans) == Set(Any[Any["alpha one"], Any["alpha two"]])
+        @test all(plan -> endswith(only(plan.selections).file, joinpath("test", "alpha.jl")), plans)
+    end
+end
+
 @testset "vector line selections execute selected tests" begin
     mktempdir() do root
         make_planning_fixture(

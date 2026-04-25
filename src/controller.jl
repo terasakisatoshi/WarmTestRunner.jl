@@ -68,6 +68,7 @@ function build_plan_jobs(
     changed_only::Bool = false,
     rerun_failed::Bool = false,
     last_failed::AbstractVector{<:AbstractString} = String[],
+    split_testsets::Bool = false,
 )
     plans = build_execution_plans(
         cfg;
@@ -78,6 +79,7 @@ function build_plan_jobs(
         changed_only,
         rerun_failed,
         last_failed,
+        split_testsets,
     )
     return plans_to_jobs(cfg, plans)
 end
@@ -565,6 +567,7 @@ function handle_request!(state::ControllerState, request)
                 changed_only = request_payload(request, :changed_only, false),
                 rerun_failed = request_payload(request, :rerun_failed, false),
                 last_failed = previous_failed,
+                split_testsets = request_payload(request, :split_testsets, false),
             )
         catch
             lock(state.lock) do
