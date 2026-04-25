@@ -15,6 +15,7 @@ using WarmTestRunner
     @test cfg.threads_per_worker == 1
     @test cfg.tool_project == abspath(joinpath(@__DIR__, ".."))
     @test cfg.use_revise === true
+    @test WarmTestRunner.controller_start_timeout(cfg) == cfg.worker_timeout
 
     @test WarmTestRunner.make_config(; jobs = 3, threads_per_worker = 2).jobs == 3
     @test_throws ArgumentError WarmTestRunner.make_config(; jobs = 0)

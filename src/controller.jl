@@ -396,6 +396,8 @@ function wait_for_record(pkgroot::AbstractString; timeout_s::Real = 10.0, log_pa
     error("timed out waiting for server record for $(abspath(pkgroot)); check controller logs at stdout=$(log_paths.stdout) stderr=$(log_paths.stderr)")
 end
 
+controller_start_timeout(cfg::RunnerConfig) = cfg.worker_timeout
+
 function wait_for_record_gone(pkgroot::AbstractString; timeout_s::Real = 10.0)
     deadline = time() + timeout_s
     while time() < deadline
@@ -472,7 +474,7 @@ function launch_controller(cfg::RunnerConfig)
     )
     try
         Base.run(cmd; wait = false)
-        return wait_for_record(cfg.pkgroot; log_paths = logs).handle
+        return wait_for_record(cfg.pkgroot; timeout_s = controller_start_timeout(cfg), log_paths = logs).handle
     finally
         close(stdout_io)
         close(stderr_io)
