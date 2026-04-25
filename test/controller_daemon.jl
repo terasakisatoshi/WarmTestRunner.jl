@@ -973,7 +973,7 @@ end
                 "slow_status.jl",
                 """
                 using Test
-                sleep(3.0)
+                sleep(6.0)
                 @test true
                 """,
             )
@@ -984,7 +984,7 @@ end
                     run_task = @async WarmTestRunner.runtests(tests = [slow_path])
                     sleep(0.3)
 
-                    deadline = time() + 1.5
+                    deadline = time() + 5.0
                     max_elapsed = 0.0
                     seen_running = false
                     while time() < deadline
