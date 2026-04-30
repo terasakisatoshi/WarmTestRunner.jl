@@ -43,7 +43,7 @@ function controller_state(cfg, workers; pkgroot = FIXTURE_ROOT, server_id = "tes
     )
 end
 
-function init_shared_context_fixture(tmp::AbstractString)
+function init_crash_recovery_shared_context_fixture(tmp::AbstractString)
     pkgroot = joinpath(tmp, "SharedContextCrashFixture")
     mkpath(joinpath(pkgroot, "src"))
     mkpath(joinpath(pkgroot, "test"))
@@ -154,7 +154,7 @@ end
 
     @testset "crash recovery recreates workers with clean shared context" begin
         mktempdir() do tmp
-            pkgroot = init_shared_context_fixture(tmp)
+            pkgroot = init_crash_recovery_shared_context_fixture(tmp)
             withenv("WARMTESTRUNNER_HOME" => tmp) do
                 cd(pkgroot) do
                     WarmTestRunner.serve(jobs = 1)
