@@ -220,6 +220,84 @@ end
     end
 end
 
+@testset "single malt worker applies Revise updates between runs" begin
+    mktempdir() do tmp
+        pkgroot = joinpath(tmp, "ReviseReloadFixture")
+        mkpath(joinpath(pkgroot, "src"))
+        mkpath(joinpath(pkgroot, "test"))
+
+        write(
+            joinpath(pkgroot, "Project.toml"),
+            """
+            name = "ReviseReloadFixture"
+            uuid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+            version = "0.1.0"
+            """,
+        )
+
+        source_path = joinpath(pkgroot, "src", "ReviseReloadFixture.jl")
+        write(
+            source_path,
+            """
+            module ReviseReloadFixture
+
+            export domath
+
+            domath(x) = x + 2
+
+            end
+            """,
+        )
+        write(
+            joinpath(pkgroot, "test", "runtests.jl"),
+            """
+            using Test
+            using ReviseReloadFixture
+
+            @testset "math" begin
+                @test domath(5) == 10
+            end
+            """,
+        )
+
+        cfg = WarmTestRunner.make_config(pkgroot = pkgroot, jobs = 1)
+        worker = WarmTestRunner.start_worker(cfg; id = 11)
+
+        try
+            WarmTestRunner.bootstrap_worker!(worker, cfg)
+            plan = only(WarmTestRunner.build_execution_plans(cfg))
+            job = WarmTestRunner.TestJob(
+                path = plan.entryfile,
+                name = plan.label,
+                plan = plan,
+            )
+
+            first = WarmTestRunner.run_test_in_worker!(worker, job, cfg)
+            @test first.status == :failed
+
+            write(
+                source_path,
+                """
+                module ReviseReloadFixture
+
+                export domath
+
+                domath(x) = x + 5
+
+                end
+                """,
+            )
+
+            second = WarmTestRunner.run_test_in_worker!(worker, job, cfg)
+            @test second.status == :passed
+            @test worker.runs_completed == 2
+        finally
+            WarmTestRunner.stop_worker!(worker)
+            @test worker.state == :stopped
+        end
+    end
+end
+
 @testset "single malt worker skips Revise when explicitly disabled" begin
     cfg = WarmTestRunner.make_config(pkgroot = FIXTURE_ROOT, jobs = 1, use_revise = false)
     worker = WarmTestRunner.start_worker(cfg; id = 6)

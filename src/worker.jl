@@ -132,6 +132,32 @@ function execution_plan_for_job(cfg::RunnerConfig, job::TestJob)
     )
 end
 
+function revise_runtime!(runtime::Module)
+    isdefined(runtime, :Revise) || return nothing
+    runtime.Revise.revise()
+    return nothing
+end
+
+function execute_plan_in_runtime(plan::ExecutionPlan, runtime::Module; topmodule::Module = Main)
+    started = time()
+    try
+        revise_runtime!(runtime)
+    catch err
+        status, summary, stacktrace = classify_exception(err, catch_backtrace())
+        return TestResult(
+            path = plan.label,
+            status = status,
+            elapsed = time() - started,
+            stdout = "",
+            stderr = "",
+            exception_summary = summary,
+            stacktrace = stacktrace,
+        )
+    end
+
+    return execute_plan(plan; topmodule = topmodule)
+end
+
 function run_test_in_worker!(worker::WorkerHandle, job::TestJob, cfg::RunnerConfig)
     worker.state = :running
     plan = execution_plan_for_job(cfg, job)
@@ -140,7 +166,7 @@ function run_test_in_worker!(worker::WorkerHandle, job::TestJob, cfg::RunnerConf
         payload = Malt.remote_eval_fetch(worker.proc, quote
             let
                 runtime = getfield(Main, $runtime_name)
-                result = runtime.WarmTestRunner.execute_plan($plan; topmodule = Main)
+                result = runtime.WarmTestRunner.execute_plan_in_runtime($plan, runtime; topmodule = Main)
                 (
                     path = result.path,
                     status = result.status,
