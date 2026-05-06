@@ -465,6 +465,42 @@ end
     end
 end
 
+@testset "runtests prints text summary by default" begin
+    mktempdir() do tmp
+        withenv("WARMTESTRUNNER_HOME" => tmp) do
+            cd(FIXTURE_ROOT) do
+                WarmTestRunner.serve(jobs = 1)
+                try
+                    output_path = joinpath(tmp, "summary.out")
+                    summary = open(output_path, "w") do output
+                        redirect_stdout(output) do
+                            WarmTestRunner.runtests(tests = ["pass.jl"])
+                        end
+                    end
+
+                    text = read(output_path, String)
+                    @test summary isa WarmTestRunner.RunSummary
+                    @test summary.passed == 1
+                    @test occursin("RunSummary:", text)
+                    @test occursin("pass.jl", text)
+
+                    quiet_path = joinpath(tmp, "quiet.out")
+                    quiet_summary = open(quiet_path, "w") do output
+                        redirect_stdout(output) do
+                            WarmTestRunner.runtests(tests = ["pass.jl"], print_summary = false)
+                        end
+                    end
+                    @test quiet_summary isa WarmTestRunner.RunSummary
+                    @test isempty(read(quiet_path, String))
+                finally
+                    WarmTestRunner.stop()
+                    WarmTestRunner.wait_for_record_gone(FIXTURE_ROOT)
+                end
+            end
+        end
+    end
+end
+
 @testset "daemon with default use_revise can be reused by matching calls" begin
     mktempdir() do tmp
         withenv("WARMTESTRUNNER_HOME" => tmp) do
@@ -1085,13 +1121,18 @@ end
 @testset "public runtests returns JSON when output_format=json" begin
     mktempdir() do tmp
         withenv("WARMTESTRUNNER_HOME" => tmp) do
+            output_path = joinpath(tmp, "json.out")
             json = try
-                WarmTestRunner.runtests(
-                    pkgroot = FIXTURE_ROOT,
-                    tests = ["pass.jl"],
-                    jobs = 1,
-                    output_format = :json,
-                )
+                open(output_path, "w") do output
+                    redirect_stdout(output) do
+                        WarmTestRunner.runtests(
+                            pkgroot = FIXTURE_ROOT,
+                            tests = ["pass.jl"],
+                            jobs = 1,
+                            output_format = :json,
+                        )
+                    end
+                end
             catch err
                 err
             end
@@ -1104,6 +1145,7 @@ end
                 @test occursin("\"diagnostics\":[]", json)
                 @test occursin("\"path\":", json)
             end
+            @test isempty(read(output_path, String))
 
             try
                 WarmTestRunner.stop(pkgroot = FIXTURE_ROOT)

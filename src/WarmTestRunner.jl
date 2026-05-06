@@ -95,6 +95,7 @@ function runtests(;
     retry_crashed::Bool = true,
     split_testsets::Bool = false,
     output_format::Symbol = :text,
+    print_summary::Bool = output_format == :text,
     kwargs...,
 )
     validate_output_format(output_format)
@@ -126,6 +127,10 @@ function runtests(;
             split_testsets = split_testsets,
         ),
     )
+    if print_summary
+        show(stdout, "text/plain", summary)
+        println(stdout)
+    end
     output_format == :json && return summary_to_json(summary)
     return summary
 end

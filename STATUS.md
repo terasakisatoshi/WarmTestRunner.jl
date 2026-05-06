@@ -38,7 +38,7 @@ Practical summary:
 Implemented:
 
 - `serve(; pkgroot, jobs, threads_per_worker, use_testenv, preload_package, startup_file, ...)`
-- `runtests(; tests = nothing, testsets = nothing, line_patterns = nothing, expression_patterns = nothing, quickfail = false, changed_only = false, rerun_failed = false, fresh = false, retry_crashed = true, split_testsets = false, output_format = :text, kwargs...)`
+- `runtests(; tests = nothing, testsets = nothing, line_patterns = nothing, expression_patterns = nothing, quickfail = false, changed_only = false, rerun_failed = false, fresh = false, retry_crashed = true, split_testsets = false, output_format = :text, print_summary = output_format == :text, kwargs...)`
 - `watch(; paths = ["src", "test"], debounce_seconds = 0.5, changed_only = true, kwargs...)`
 - `status(; pkgroot = pwd())`
 - `stop(; pkgroot = pwd())`
@@ -60,6 +60,9 @@ Current behavior:
   split testsets concurrently.
 - `runtests(...; output_format = :json)` returns a JSON string preserving summary counts and
   structured diagnostics.
+- `runtests(...; print_summary = output_format == :text)` prints the text summary to
+  stdout by default for text output while still returning the normal result. Set
+  `print_summary = false` to suppress it. JSON output remains quiet by default.
 - `runtests(...; changed_only = true)` selects changed tests with the implemented coarse
   heuristic, including the `src/` fallback to the full discovered set.
 - `runtests(...; changed_only = true)` also falls back to the full discovered set when Git
