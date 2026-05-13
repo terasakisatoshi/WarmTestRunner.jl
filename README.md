@@ -30,7 +30,7 @@ julia -E 'using Pkg; Pkg.activate(); Pkg.develop(path = ".")'
 
 ```bash
 $ cd path/to/target/package
-$ julia --project -E 'using WarmTestRunner; summary = runtests()'
+$ julia --project -e 'using WarmTestRunner; runtests()'
 ```
 
 If `test/runtests.jl` exists, `runtests()` uses it as the test suite entry point. When you pass `tests = [file.jl]` to point at `./test/file.jl`, reachable included files still go through `test/runtests.jl`, and only tests in that file are selected. Non-selected included files may still evaluate non-test expressions needed for dependencies or top-level setup, but `@test` / `@testset` in non-selected files are not run.
@@ -38,8 +38,40 @@ If `test/runtests.jl` exists, `runtests()` uses it as the test suite entry point
 Pass `split_testsets = true` to split literal-name top-level `@testset` blocks in statically reachable test files into separate execution units. If you start a worker pool first with `serve(jobs = 4)`, jobs for split testsets are dispatched in parallel to existing workers.
 
 ```bash
-$ julia --project -E 'using WarmTestRunner; serve(jobs = 4); runtests(split_testsets = true)'
+$ julia --project -e 'using WarmTestRunner; serve(jobs = 4); runtests(split_testsets = true)'
 ```
+
+Use this pattern when you want to actually use multiple workers:
+
+```julia
+using WarmTestRunner
+
+serve(jobs = 4)
+runtests(split_testsets = true)
+```
+
+`serve(jobs = 4)` starts a warm daemon with four worker processes.
+`runtests(split_testsets = true)` then splits top-level `@testset`s into separate
+scheduler jobs, allowing those jobs to run concurrently across the four workers.
+Without `split_testsets = true`, a suite with `test/runtests.jl` is usually one
+large execution unit, so extra workers may sit idle.
+
+`runtests` prints a text summary by default for normal text output, so the common
+`julia -e` form shows per-file or per-testset results directly:
+
+```bash
+$ julia --project -e 'using WarmTestRunner; runtests(split_testsets = true)'
+```
+
+Pass `print_summary = false` when you want to keep stdout quiet and only use the
+returned value:
+
+```bash
+$ julia --project -e 'using WarmTestRunner; summary = runtests(print_summary = false)'
+```
+
+`output_format = :json` also stays quiet by default so machine-readable output is not
+mixed with the text summary.
 
 The return value is a `RunSummary`:
 
