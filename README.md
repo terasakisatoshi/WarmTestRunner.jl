@@ -70,3 +70,17 @@ Those jobs are sent to a **daemon** process that owns a pool of long-lived **wor
 On startup, each worker runs a **bootstrap**: it activates the package’s test environment (via **TestEnv.jl**-style activation), can preload your package and **Revise.jl**, then executes plans **inside that worker’s `Main`**—similar in spirit to virtual execution through `test/runtests.jl`, so suite structure and top-level setup stay aligned with what `Pkg.test()` would see.
 
 The controller **schedules** plans onto idle workers, **captures** stdout/stderr and failures into structured results, and can **retry** or replace workers if one crashes. If you call `serve(jobs = n)` first, the pool is sized for parallelism; with `split_testsets = true`, independent testset jobs run concurrently on different workers. Calling `stop()` shuts down the daemon and releases those processes.
+
+## Caution
+
+If you run `Pkg.build()` for the target package, you must stop the daemon (`stop()`) and rerun `runtests()` afterwards:
+
+```sh
+$ cd path/to/target/package
+$ julia --project -e 'using Pkg; Pkg.build()'
+$ julia --project -e 'using WarmTestRunner; stop()'
+$ julia --project -e 'using WarmTestRunner; runtests()'
+# update files in ./src or ./test/
+$ julia --project -e 'using WarmTestRunner; runtests()'
+# update files in ./src or ./test/ ... repeat the cycle
+```
