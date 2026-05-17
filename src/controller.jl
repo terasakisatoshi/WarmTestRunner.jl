@@ -464,10 +464,7 @@ function launch_controller(cfg::RunnerConfig)
         """
 
     cmd = pipeline(
-        setenv(
-            `$(Base.julia_cmd()) --startup-file=no -e $request`,
-            controller_env,
-        ),
+        detach(setenv(`$(Base.julia_cmd()) --startup-file=no -e $request`, controller_env)),
         stdin = devnull,
         stdout = stdout_io,
         stderr = stderr_io,

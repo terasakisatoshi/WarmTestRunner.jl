@@ -465,6 +465,57 @@ end
     end
 end
 
+@testset "daemon outlives launcher process" begin
+    mktempdir() do tmp
+        withenv("WARMTESTRUNNER_HOME" => tmp) do
+            project_root = dirname(@__DIR__)
+            script = """
+                using WarmTestRunner
+                cd(ARGS[1]) do
+                    handle = WarmTestRunner.serve(jobs = 1)
+                    status = WarmTestRunner.status()
+                    println("launched_pid=", handle.pid)
+                    println("launcher_pgid=", ccall(:getpgrp, Cint, ()))
+                    println("launched_state=", status.state)
+                end
+            """
+            output = read(
+                pipeline(
+                    setenv(
+                        `$(Base.julia_cmd()) --startup-file=no --project=$project_root -e $script $FIXTURE_ROOT`,
+                        "WARMTESTRUNNER_HOME" => tmp,
+                    ),
+                    stderr = stderr,
+                ),
+                String,
+            )
+            @test occursin("launched_state=idle", output)
+
+            launched_pid = parse(Int, match(r"launched_pid=(\d+)", output).captures[1])
+            if !Sys.iswindows()
+                launcher_pgid = parse(Int, match(r"launcher_pgid=(\d+)", output).captures[1])
+                controller_pgid = parse(Int, strip(read(`ps -o pgid= -p $launched_pid`, String)))
+                @test controller_pgid != launcher_pgid
+            end
+
+            observed = nothing
+            deadline = time() + 5
+            while time() < deadline
+                observed = WarmTestRunner.status(pkgroot = FIXTURE_ROOT)
+                observed.state == :idle && observed.jobs == 1 && break
+                sleep(0.1)
+            end
+
+            @test observed !== nothing
+            @test observed.state == :idle
+            @test observed.jobs == 1
+
+            WarmTestRunner.stop(pkgroot = FIXTURE_ROOT)
+            WarmTestRunner.wait_for_record_gone(FIXTURE_ROOT)
+        end
+    end
+end
+
 @testset "runtests prints text summary by default" begin
     mktempdir() do tmp
         withenv("WARMTESTRUNNER_HOME" => tmp) do
